@@ -55,6 +55,10 @@
       <select id="filter-source">
         <option value="">Alle kilder</option>
       </select>
+      <select id="sort">
+        <option value="price_asc">Sortér: billigst</option>
+        <option value="newest">Sortér: nyeste</option>
+      </select>
       <button id="refresh">Opdatér</button>
     </div>
   </div>
@@ -144,8 +148,10 @@
       const params = new URLSearchParams();
       const vurdering = document.getElementById("filter-vurdering").value;
       const source = document.getElementById("filter-source").value;
+      const sort = document.getElementById("sort").value;
       if (vurdering) params.set("vurdering", vurdering);
       if (source) params.set("source", source);
+      params.set("sort", sort);
 
       const res = await fetch(`${API_BASE}/api/listings?${params.toString()}`, { headers: authHeaders() });
       if (!res.ok) {
@@ -175,6 +181,7 @@
 
     document.getElementById("filter-vurdering").addEventListener("change", loadListings);
     document.getElementById("filter-source").addEventListener("change", loadListings);
+    document.getElementById("sort").addEventListener("change", loadListings);
     document.getElementById("refresh").addEventListener("click", loadListings);
 
     document.getElementById("logout").addEventListener("click", async () => {

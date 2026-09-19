@@ -138,6 +138,18 @@ app.get("/api/listings", requireAuth, async (c) => {
     args.push(dustClass);
   }
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  // Sortering: "billigst" (default) og "nyeste" - se frontend/index.html's
+  // dropdown. `price_dkk IS NULL, price_dkk ASC` sætter annoncer uden pris
+  // (typisk auktioner uden aktuelt bud) sidst i stedet for først (SQLite
+  // sorterer NULL som den laveste værdi som standard, hvilket ellers ville
+  // give en tom pris "billigst").
+  const sort = c.req.query("sort") === "newest" ? "newest" : "price_asc";
+  const orderBy =
+    sort === "newest"
+      ? "first_seen DESC"
+      : "price_dkk IS NULL, price_dkk ASC, first_seen DESC";
+
   args.push(limit);
 
   // Idempotent: undgår en "no such table"-fejl hvis endpointet rammes før
@@ -162,8 +174,7 @@ app.get("/api/listings", requireAuth, async (c) => {
       (SELECT observed_at FROM price_history ph
         WHERE ph.item_key = listings.item_key ORDER BY ph.id DESC LIMIT 1) AS latest_price_drop_at
       FROM listings ${where}
-      ORDER BY CASE vurdering WHEN 'køb nu' THEN 0 WHEN 'se nærmere' THEN 1 ELSE 2 END,
-               score DESC, first_seen DESC
+      ORDER BY ${orderBy}
       LIMIT ?`,
     args,
   });
