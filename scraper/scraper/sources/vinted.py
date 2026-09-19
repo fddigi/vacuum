@@ -9,8 +9,25 @@ KRITISK, LÆS FØR DU STOLER FOR MEGET PÅ DENNE KILDE: Vinted er en tøj-/
 livsstils-markedsplads. Det er UBEKRÆFTET om industrielle H/M-klasse
 byggestøvsugere overhovedet findes der i nævneværdigt omfang -- inkluderet
 fordi brugeren selv nævnte platformen og den er billig at polle (intet login,
-lavt scraping-besvær), IKKE fordi der er dokumenteret markedsdækning. Se
-testresultater/smoke-test i README for faktisk observeret volumen.
+lavt scraping-besvær), IKKE fordi der er dokumenteret markedsdækning.
+
+STATUS PR. LIVE-TEST 2026-09-19: dette API-endpoint ('GET /api/v2/catalog/
+items') gav 404 ved test, ~2 måneder efter PLAGGs research (2026-07-10)
+bekræftede det virkede anonymt. Browser-baseret netværks-interception
+(Claude in Chrome) viste at den RIGTIGE frontend nu kalder andre '/api/v2/'-
+endpoints ('promoted_closets', 'info_banners/catalog', 'banners'), som alle
+svarer normalt -- men selve 'catalog/items'-kaldet kunne IKKE genfindes i den
+fangede netværkstrafik, og sitet har siden fået DataDome-scripts indlejret
+(static-assets.vinted.com/datadome/), som er kendt for undertiden at
+returnere et misvisende 404 i stedet for 403 for at skjule bot-detektion.
+Konklusion: enten er endpointet flyttet/omdøbt, eller det er nu aktivt
+blokeret for ikke-browser-klienter. Kilden fejler GRACEFULT (tom liste,
+logget advarsel, se _looks_like_bot_wall/status-tjek nedenfor) -- den crasher
+intet, men returnerer p.t. INGEN reelle fund. Kræver enten et nyt spike med
+frisk netværks-interception for at finde det aktuelle endpoint, eller at
+kilden droppes til fordel for et Playwright-baseret DOM-scrape af den
+rigtige søgeside (samme mønster som de øvrige kilder) hvis den fortsat
+ønskes.
 
 Fragt er IKKE tilgængelig anonymt (samme fund som PLAGG) -- origin_country_code
 sættes derfor til None for alle Vinted-fund (ingen sælger-land-opslag i v1),

@@ -12,9 +12,9 @@ dokumentation) -- denne sektion dækker kun det projektspecifikke.
 |---|---|---|
 | dba.dk | ✅ Aktiv | Playwright, Schibsted-platform |
 | guloggratis.dk | ✅ Aktiv | Playwright, egen React-DOM |
-| kleinanzeigen.de | ✅ Aktiv | Playwright, frisk context pr. forespørgsel |
-| blocket.se | ✅ Aktiv | Samme Schibsted-platform som dba.dk |
-| vinted.dk | ✅ Aktiv, **lavt forventet udbytte** | Tøj-/livsstils-markedsplads, ubekræftet dækning for industriudstyr |
+| kleinanzeigen.de | ✅ Aktiv, live-verificeret | Playwright, frisk context pr. forespørgsel -- selectors fuldt genskrevet efter site-redesign, se nedenfor |
+| blocket.se | ✅ Aktiv, live-verificeret | Samme Schibsted-platform som dba.dk, ingen ændringer nødvendige |
+| vinted.dk | ⚠️ Kode findes, men **p.t. ikke-funktionel** | API-endpointet fra PLAGGs research (2026-07-10) giver nu 404, muligvis DataDome-blokeret -- fejler gracefult (tom liste), kræver et nyt research-spike. Se `sources/vinted.py`'s docstring |
 | klaravik.dk | ✅ Aktiv | Auktion, aktuelt bud (ikke fast pris) |
 | auktionshuset.dk ("dab.dk" i specen) | ✅ Aktiv, **stærkeste fund ved test** | Konkurs-/overskudsauktioner -- reelt lager af professionelt udstyr |
 | retrade.eu | ✅ Aktiv, **lavt forventet udbytte** | Domineret af tung entreprenørmaskineri, 0 hits ved test på "kärcher"/"støvsuger" |
@@ -46,6 +46,20 @@ levende markedspladser (ikke kun syntetiske unit-tests):
   Et kendt mærke nedgraderer nu til "se nærmere" (bed om typeskilt) i stedet.
 - **Fejlplaceret blacklist-mønster**: `karcher_wd_serie` manglede
   mærke-kontekst og ramte en Nilfisk-annonce ved et uheld.
+- **kleinanzeigen.de var fuldt ude af drift**: sitet er redesignet siden
+  PASPEAKERS byggede sin scraper (`article.aditem` findes ikke længere).
+  Herudover blokerer en obligatorisk GDPR-cookie-væg AL rendering på hver
+  frisk browser-context, indtil den klikkes væk. Begge dele rettet
+  (nye selectors + eksplicit klik), samt en tredje fejl: søgeord med "/"
+  (fx "NT 35/1") knækkede URL-stien og gav 50 helt urelaterede fund (biler,
+  lejligheder) i stedet for en fejl -- rettet ved at erstatte "/" med "-".
+  Efter alle tre rettelser: fandt bl.a. "Kärcher NT 35/1 Tact Te H" til 549
+  kr., den model specen selv kalder "bedste brugtjagt".
+- **vinted.dk's API-endpoint svarer nu 404**: PLAGGs research (2026-07-10)
+  bekræftede det virkede anonymt; ved test 2026-09-19 er det enten
+  flyttet/omdøbt eller blokeret af sitets nu-indlejrede DataDome-script.
+  Kilden fejler gracefult, men leverer p.t. ingen reelle fund -- kræver et
+  nyt research-spike med frisk netværks-interception.
 
 Se git-historikken/kommentarerne i `scraper/scraper/sources/*.py` og
 `scraper/scraper/models.py` for de fulde begrundelser.
