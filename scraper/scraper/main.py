@@ -24,7 +24,7 @@ from scraper_core.logging_setup import configure_logging
 from scraper_core.sync import sync_pending
 from scraper_core.turso_client import TursoClient
 
-from .pipeline import TURSO_SCHEMA, run_source
+from .pipeline import SYNC_PROTECTED_COLUMNS, TURSO_SCHEMA, run_source
 from .price_history import sync_price_history_to_turso
 from .search_terms import load_search_terms
 from .source_cadence import SOURCE_STATE_SCHEMA, mark_source_run, should_run_source
@@ -143,7 +143,9 @@ def _run_locked(settings: Settings, force_source: str | None = None) -> int:
                         all_price_drop_events.extend(price_drop_events)
 
                     for _ in range(100):  # 100 * 200 = 20.000 rækker/kørsel-loft
-                        batch_synced = sync_pending(store, turso)
+                        batch_synced = sync_pending(
+                            store, turso, protected_update_columns=SYNC_PROTECTED_COLUMNS
+                        )
                         synced += batch_synced
                         if batch_synced == 0:
                             break

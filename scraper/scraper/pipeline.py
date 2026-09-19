@@ -26,6 +26,16 @@ logger = logging.getLogger(__name__)
 
 TARGET_TABLE = "listings"
 
+# Passed to scraper_core.sync.sync_pending() (see main.py) -- columns a manual
+# Worker endpoint owns and that must NEVER be touched by a scraper resync,
+# even when other real content changed on the same row. Uden dette nulstiller
+# den generiske Turso-upsert-SQL i sync_pending() stille disse felter til
+# scraperens egen (konstante) default-værdi, hver gang en anden ændring på
+# rækken udløser en re-sync -- se scraper_core.sync.sync_pending()'s
+# docstring for det konkrete produktionsfund (samme klasse bug som ramte
+# seng-projektets first_seen, fundet uafhængigt her via dismissed).
+SYNC_PROTECTED_COLUMNS = {"first_seen", "dismissed", "dismissed_reason"}
+
 LOCAL_SCHEMA = """
 CREATE TABLE IF NOT EXISTS listings (
     item_key TEXT PRIMARY KEY,
@@ -138,9 +148,7 @@ def run_source(
     Returnerer (raw_count, changed_count, price_drop_events)."""
     store.executescript(LOCAL_SCHEMA)
     add_column_if_missing(store.connection, "listings", "last_seen", "TEXT")
-    add_column_if_missing(
-        store.connection, "listings", "dismissed", "INTEGER NOT NULL DEFAULT 0"
-    )
+    add_column_if_missing(store.connection, "listings", "dismissed", "INTEGER NOT NULL DEFAULT 0")
     add_column_if_missing(store.connection, "listings", "dismissed_reason", "TEXT")
     store.connection.execute("UPDATE listings SET last_seen = first_seen WHERE last_seen IS NULL")
     store.connection.commit()
@@ -256,7 +264,8 @@ def run_source(
                 hash_payload={
                     k: v
                     for k, v in payload.items()
-                    if k not in ("first_seen", "last_seen", "raw_json")
+                    if k
+                    not in ("first_seen", "last_seen", "raw_json", "dismissed", "dismissed_reason")
                 },
             )
             if not is_new_or_changed:
