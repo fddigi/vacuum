@@ -126,3 +126,32 @@ def test_soft_signals_detect_filter_cleaning_and_flowsensor():
 def test_battery_detected_even_without_model_match():
     result = classify_model("Sikkerhedsstøvsuger, batteri, 18V, ukendt mærke, H-klasse nævnt")
     assert result["battery"] is True
+
+
+def test_household_vacuum_categories_are_hard_rejected():
+    """Regression -- fundet 2026-09-19 da brugeren manuelt diskvalificerede 9
+    reelle DBA-fund (alle husholdningsstøvsugere), primært fra det brede
+    'sikkerhedsstøvsuger'-søgeord. Disse produktkategorier kan KATEGORISK
+    aldrig være en H/M-klasse maskine, uanset mærke/pris."""
+    cases = [
+        "Håndstøvsuger",
+        "Helt ny håndstøvsuger 12v..",
+        "Håndstøvsuger, AEG ukendt, 600 watt",
+        "Aske Støvsuger",
+        "Askepot til støvsugeren",
+        "Kärcher askepot til støvsugeren",  # mærke nævnt -- skal STADIG hård-afvises
+        "Lille støvsuger",
+        "Robotstøvsuger Roomba sælges",
+        "Bilstøvsuger 12V til salg",
+        "Vinduesstøvsuger Kärcher WV2",
+    ]
+    for text in cases:
+        result = classify_model(text)
+        assert result["hard_reject"] is True, f"{text!r} skulle være hard_reject: {result}"
+
+
+def test_generic_vacuum_bags_excluded_as_accessory():
+    """Regression -- 'Kärcher støvsuger poser' blev IKKE fanget af det
+    oprindelige mønster (kun 'filterposer'/'sikkerhedsfilterposer')."""
+    assert is_accessory_or_rental("Kärcher støvsuger poser")
+    assert is_accessory_or_rental("Poser til støvsuger, 10 stk")

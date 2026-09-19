@@ -168,3 +168,25 @@ def test_new_price_70pct_ceiling_overrides_category_ceiling():
     result = classify(listing, TEST_CONFIG)
     assert result["vurdering"] == "afvis"
     assert "70%" in " ".join(result["mangler_info"])
+
+
+def test_zero_signal_listing_is_afvist_not_se_naermere():
+    """Regression -- fundet 2026-09-19: bare 'Støvsuger'-annoncer (intet
+    mærke, ingen klasse-omtale, ikke engang svag markedsføringstekst) endte
+    i 'se nærmere' og blev manuelt diskvalificeret af brugeren ni gange i
+    træk. Sådanne annoncer giver intet at handle på og bør afvises direkte."""
+    for title in ["Støvsuger", "støvsuger", "Lille pæn ting"]:
+        listing = _listing(title, "", 75)
+        result = classify(listing, TEST_CONFIG)
+        assert result["vurdering"] == "afvis", f"{title!r}: {result}"
+        assert result["classification_method"] == "afvist: intet identificerbart signal"
+
+
+def test_known_brand_still_protects_from_zero_signal_afvis():
+    """Modstykke til testen ovenfor: et KENDT mærke (uden model-match) skal
+    STADIG give 'se nærmere', ikke det nye 'intet signal'-afvis -- ellers
+    ville den tidligere rettede Nilfisk Attix-sag (se test_normalize.py)
+    blive ramt igen af en anden regel."""
+    listing = _listing("Nilfisk Attix 751-11 industristøvsuger blå", "Pæn stand", 2000)
+    result = classify(listing, TEST_CONFIG)
+    assert result["vurdering"] == "se nærmere"

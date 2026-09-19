@@ -146,6 +146,24 @@ def classify(listing: dict, config: dict) -> dict:
             method="afvist: kun svag evidens (filter-marketing, ikke maskinklasse)",
         )
 
+    # KRITISK FUND (bruger diskvalificerede 10 rigtige DBA-fund manuelt
+    # 2026-09-19, primært generiske "Støvsuger"/"Lille støvsuger"-annoncer
+    # fundet via det brede "sikkerhedsstøvsuger"-søgeord): en annonce med
+    # ABSOLUT INTET signal -- intet mærke, ingen klasse-omtale, ikke engang
+    # svag markedsførings-evidens -- er reelt STØJ fra en bred søgning, ikke
+    # en kandidat der fortjener "se nærmere". Bredere end weak_evidence_only-
+    # tjekket ovenfor (som kræver eksplicit HEPA/professionel-tekst): her er
+    # der ingenting overhovedet at spørge sælger om ud over de faste 6
+    # standardspørgsmål, hvilket i praksis ikke er brugbart.
+    if dust_class in (None, "ukendt") and not known_brand_mentioned and not weak_evidence_only:
+        return _result(
+            "afvis",
+            score,
+            reasons,
+            ["intet mærke, model eller klasse-omtale -- sandsynligvis støj fra bred søgning"],
+            method="afvist: intet identificerbart signal",
+        )
+
     if completeness_negative:
         return _result(
             "afvis",

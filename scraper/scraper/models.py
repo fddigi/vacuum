@@ -601,7 +601,23 @@ HARD_REJECT_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("bosch_18v", _p(r"\bgas[\s-]*18v\b")),
     ("fein_turbo", _p(r"\bfein\b.{0,15}\bturbo[\s-]*(?:ii|xl)\b")),
     ("laavkvalitetsmaerker", _p(r"\b(?:arebos|scheppach|powerplus|einhell)\b")),
-    ("askestoevsuger", _p(r"\baskest[øo]vsuger[e]?\b")),
+    # KRITISK FUND (bruger diskvalificerede 10 rigtige DBA-fund manuelt
+    # 2026-09-19, alle husholdningsstøvsugere): H/M-klasse er ALTID en stor
+    # kabinet-/hjulmaskine med separat slange -- disse produktkategorier kan
+    # KATEGORISK aldrig være en sikkerhedsstøvsuger, uanset mærke/pris, så de
+    # afvises som en produkttype, ikke et specifikt mærke/model.
+    # "askestoevsuger" udvidet fra kun det sammensatte ord (fangede ikke
+    # "Aske Støvsuger" i to ord, som var et af de 10 fund) til også at kræve
+    # "askepot(te)" (askespand/askebeholder-tilbehør, samme fund).
+    ("askestoevsuger", _p(r"\baske[\s-]*(?:st[øo]vsuger|suger)[e]?\b")),
+    ("askepotte", _p(r"\baskepot(?:te)?\b")),
+    ("haandstoevsuger", _p(r"\bh[åa]ndst[øo]vsuger[e]?\b")),
+    ("akkustoevsuger", _p(r"\bakku[\s-]*st[øo]vsuger[e]?\b")),
+    ("stavstoevsuger", _p(r"\bstavst[øo]vsuger[e]?\b")),
+    ("robotstoevsuger", _p(r"\brobotst[øo]vsuger[e]?\b")),
+    ("bilstoevsuger", _p(r"\bbilst[øo]vsuger[e]?\b")),
+    ("vinduesstoevsuger", _p(r"\bvindues[\s-]*(?:st[øo]vsuger|suger)[e]?\b")),
+    ("lille_stoevsuger", _p(r"\blille\s+st[øo]vsuger\b")),
 ]
 
 # Svage "bevis" der IKKE alene må tælle som dokumentation for maskinens

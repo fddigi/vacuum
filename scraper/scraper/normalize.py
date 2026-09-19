@@ -40,6 +40,11 @@ ACCESSORY_OR_RENTAL_PATTERN = re.compile(
     r"kun\s+filter|filter\s+til\s+salg|filterelement\s+til\s+salg|"
     r"kun\s+slange|slange\s+til\s+salg|"
     r"(?:kun\s+)?(?:sikkerheds)?filterposer?\s+(?:til\s+salg|sælges)|"
+    # KRITISK FUND (bruger diskvalificerede fund 2026-09-19): "Kärcher
+    # støvsuger poser" (generiske støvsugerposer, ikke "filterposer") blev
+    # ikke fanget af mønsteret ovenfor, som kun matcher "(sikkerheds)filter-
+    # poser" -- tilføjet bredere match for almindelige støvsugerposer.
+    r"st[øo]vsuger(?:s)?\s*poser?\b|poser\s+til\s+st[øo]vsuger|"
     r"reservedele?|ersatzteile?|reserv?del(?:ar)?|"
     r"udlejning|leje\b|til\s*leje|verleih|vermietung|miete[nt]?|uthyrning|hyra|hyr\b|for\s*rent|rental|"
     r"s[øo]ges|sucht|gesucht|wanted|k[øo]bes|k[öo]pes|"
