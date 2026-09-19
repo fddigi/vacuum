@@ -37,6 +37,11 @@
     summary { cursor: pointer; font-size: 0.85rem; color: var(--muted); }
     #error { color: #b3261e; }
     #empty { color: var(--muted); padding: 24px 0; }
+    .card-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+    .dismiss-btn { font-size: 0.8rem; padding: 4px 10px; }
+    .dismissed-badge { font-size: 0.78rem; color: #a33; }
+    .card.is-dismissed { opacity: 0.6; }
+    .checkbox-label { display: flex; align-items: center; gap: 6px; font-size: 0.9rem; }
   </style>
 </head>
 <body>
@@ -59,6 +64,7 @@
         <option value="price_asc">Sortér: billigst</option>
         <option value="newest">Sortér: nyeste</option>
       </select>
+      <label class="checkbox-label"><input type="checkbox" id="show-dismissed" /> Vis afviste</label>
       <button id="refresh">Opdatér</button>
     </div>
   </div>
@@ -109,9 +115,22 @@
       return "ukendt";
     }
 
+    async function setDismissed(itemKey, dismissed) {
+      const path = dismissed ? "dismiss" : "undismiss";
+      const res = await fetch(`${API_BASE}/api/listings/${encodeURIComponent(itemKey)}/${path}`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      if (!res.ok) {
+        document.getElementById("error").textContent = "Kunne ikke opdatere annoncen.";
+        return false;
+      }
+      return true;
+    }
+
     function renderCard(row) {
       const card = document.createElement("div");
-      card.className = "card";
+      card.className = "card" + (row.dismissed ? " is-dismissed" : "");
 
       const missing = parseJsonArray(row.mangler_info);
       const questions = parseJsonArray(row.spoergsmaal_til_saelger);
@@ -119,11 +138,15 @@
 
       const priceText = row.price_dkk != null ? `${Math.round(row.price_dkk).toLocaleString("da-DK")} kr.` : "pris ukendt";
       const ageFlag = row.forhandlingsmulighed ? ` · <span class="tag">30+ dage &rarr; forhandlingsmulighed</span>` : "";
+      const dismissedBadge = row.dismissed
+        ? `<span class="dismissed-badge">(afvist${row.dismissed_reason === "manual" ? " manuelt" : ""})</span>`
+        : "";
 
       card.innerHTML = `
         <div class="card-top">
           <div>
             <span class="badge ${badgeClass(row.vurdering)}">${row.vurdering ?? "ukendt"}</span>
+            ${dismissedBadge}
             <div class="title"><a href="${row.url}" target="_blank" rel="noopener">${row.title ?? "(uden titel)"}</a></div>
             <div class="meta">${row.source ?? ""}${row.location ? " · " + row.location : ""} · score ${row.score ?? 0}${ageFlag}</div>
           </div>
@@ -140,7 +163,27 @@
         </div>
         ${missing.length ? `<div class="missing"><strong>Mangler info:</strong><ul>${missing.map((m) => `<li>${m}</li>`).join("")}</ul></div>` : ""}
         ${questions.length ? `<details><summary>Spørgsmål til sælger (${questions.length})</summary><ul>${questions.map((q) => `<li>${q}</li>`).join("")}</ul></details>` : ""}
+        <div class="card-actions">
+          <button class="dismiss-btn" type="button">${row.dismissed ? "Genskab" : "Diskvalificér"}</button>
+        </div>
       `;
+
+      card.querySelector(".dismiss-btn").addEventListener("click", async () => {
+        const next = !row.dismissed;
+        const ok = await setDismissed(row.item_key, next);
+        if (ok) {
+          row.dismissed = next ? 1 : 0;
+          row.dismissed_reason = next ? "manual" : null;
+          // Hvis "Vis afviste" er slået fra, skal en netop diskvalificeret
+          // annonce forsvinde fra visningen med det samme, uden en ny fetch.
+          if (next && !document.getElementById("show-dismissed").checked) {
+            card.remove();
+          } else {
+            card.replaceWith(renderCard(row));
+          }
+        }
+      });
+
       return card;
     }
 
@@ -149,9 +192,11 @@
       const vurdering = document.getElementById("filter-vurdering").value;
       const source = document.getElementById("filter-source").value;
       const sort = document.getElementById("sort").value;
+      const showDismissed = document.getElementById("show-dismissed").checked;
       if (vurdering) params.set("vurdering", vurdering);
       if (source) params.set("source", source);
       params.set("sort", sort);
+      if (showDismissed) params.set("include_dismissed", "1");
 
       const res = await fetch(`${API_BASE}/api/listings?${params.toString()}`, { headers: authHeaders() });
       if (!res.ok) {
@@ -182,6 +227,7 @@
     document.getElementById("filter-vurdering").addEventListener("change", loadListings);
     document.getElementById("filter-source").addEventListener("change", loadListings);
     document.getElementById("sort").addEventListener("change", loadListings);
+    document.getElementById("show-dismissed").addEventListener("change", loadListings);
     document.getElementById("refresh").addEventListener("click", loadListings);
 
     document.getElementById("logout").addEventListener("click", async () => {

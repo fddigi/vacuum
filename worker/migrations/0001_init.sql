@@ -45,7 +45,12 @@ CREATE TABLE IF NOT EXISTS listings (
     spoergsmaal_til_saelger TEXT,
     first_seen TEXT NOT NULL,
     last_seen TEXT,
-    raw_json TEXT
+    raw_json TEXT,
+    -- Manuel afvisning fra frontend'en (POST /api/listings/:itemKey/dismiss),
+    -- ported fra seng-projektets samme mønster. Aldrig rørt af scraperen efter
+    -- første indsættelse, se scraper/scraper/pipeline.py's ON CONFLICT-klausul.
+    dismissed INTEGER NOT NULL DEFAULT 0,
+    dismissed_reason TEXT
 );
 
 -- Dynamiske søgetermer ("ønskeseddel"), redigerbar fra webapp'en -- se

@@ -56,24 +56,33 @@ CREATE TABLE IF NOT EXISTS listings (
     spoergsmaal_til_saelger TEXT,
     first_seen TEXT NOT NULL,
     last_seen TEXT,
-    raw_json TEXT
+    raw_json TEXT,
+    dismissed INTEGER NOT NULL DEFAULT 0,
+    dismissed_reason TEXT
 );
 """
 TURSO_SCHEMA = LOCAL_SCHEMA
 
+# dismissed/dismissed_reason: manuel afvisning fra frontend'en (via Worker'ens
+# POST /api/listings/:itemKey/dismiss, som skriver direkte til Turso UDENOM
+# scraperen) -- ported fra seng-projektets samme mønster. Sættes KUN ved en
+# annonces FØRSTE indsættelse her (default 0/NULL) -- en senere re-sync (fx et
+# prisfald) rører ALDRIG disse to kolonner (bevidst udeladt fra ON CONFLICT
+# DO UPDATE SET nedenfor), så en brugers manuelle afvisning aldrig
+# overskrives af scraperen ved næste kørsel.
 _INSERT_SQL = """
 INSERT INTO listings (item_key, source, title, url, location, brand, model_key,
     model_label, dust_class, klasse_kilde, asbestos_approved, container_l,
     battery, price_dkk, landed_price_dkk, shipping_customs_dkk, origin_country,
     filterrensning, flowsensor, stikdaase, medfoelger, score, vurdering,
     classification_method, mangler_info, spoergsmaal_til_saelger, first_seen,
-    last_seen, raw_json)
+    last_seen, raw_json, dismissed, dismissed_reason)
 VALUES (:item_key, :source, :title, :url, :location, :brand, :model_key,
     :model_label, :dust_class, :klasse_kilde, :asbestos_approved, :container_l,
     :battery, :price_dkk, :landed_price_dkk, :shipping_customs_dkk, :origin_country,
     :filterrensning, :flowsensor, :stikdaase, :medfoelger, :score, :vurdering,
     :classification_method, :mangler_info, :spoergsmaal_til_saelger, :first_seen,
-    :last_seen, :raw_json)
+    :last_seen, :raw_json, :dismissed, :dismissed_reason)
 ON CONFLICT(item_key) DO UPDATE SET
     title = excluded.title, url = excluded.url, location = excluded.location,
     brand = excluded.brand, model_key = excluded.model_key,
@@ -89,6 +98,7 @@ ON CONFLICT(item_key) DO UPDATE SET
     mangler_info = excluded.mangler_info,
     spoergsmaal_til_saelger = excluded.spoergsmaal_til_saelger,
     raw_json = excluded.raw_json, last_seen = excluded.last_seen
+    -- dismissed/dismissed_reason er BEVIDST udeladt her, se kommentaren ovenfor.
 """
 
 
@@ -128,6 +138,10 @@ def run_source(
     Returnerer (raw_count, changed_count, price_drop_events)."""
     store.executescript(LOCAL_SCHEMA)
     add_column_if_missing(store.connection, "listings", "last_seen", "TEXT")
+    add_column_if_missing(
+        store.connection, "listings", "dismissed", "INTEGER NOT NULL DEFAULT 0"
+    )
+    add_column_if_missing(store.connection, "listings", "dismissed_reason", "TEXT")
     store.connection.execute("UPDATE listings SET last_seen = first_seen WHERE last_seen IS NULL")
     store.connection.commit()
 
@@ -226,6 +240,9 @@ def run_source(
                 "first_seen": first_seen,
                 "last_seen": first_seen,
                 "raw_json": json.dumps(listing.get("raw", {}), default=str, ensure_ascii=False),
+                # Kun brugt ved FØRSTE indsættelse -- se _INSERT_SQL's kommentar.
+                "dismissed": 0,
+                "dismissed_reason": None,
             }
 
             is_new_or_changed = store.upsert_if_changed(

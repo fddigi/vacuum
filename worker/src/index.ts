@@ -118,6 +118,10 @@ app.get("/api/listings", requireAuth, async (c) => {
   const brand = c.req.query("brand");
   const source = c.req.query("source");
   const dustClass = c.req.query("dust_class");
+  const includeDismissed = c.req.query("include_dismissed") === "1";
+
+  await ensureColumn(db, "listings", "dismissed", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(db, "listings", "dismissed_reason", "TEXT");
 
   const conditions: string[] = [];
   const args: (string | number)[] = [];
@@ -136,6 +140,11 @@ app.get("/api/listings", requireAuth, async (c) => {
   if (dustClass) {
     conditions.push("dust_class = ?");
     args.push(dustClass);
+  }
+  // Afviste annoncer skjules som standard - se "Vis afviste"-tjekboksen i
+  // frontend/index.html, som sætter include_dismissed=1 for at se dem igen.
+  if (!includeDismissed) {
+    conditions.push("dismissed = 0");
   }
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
@@ -195,6 +204,41 @@ app.get("/api/listings/:itemKey", requireAuth, async (c) => {
     return c.json({ error: "not found" }, 404);
   }
   return c.json({ listing: result.rows[0] });
+});
+
+// --- Manuel afvisning ("diskvalificér"-knappen i frontend'en), ported fra
+// seng-projektets samme mønster. Skriver direkte til Turso UDENOM scraperen -
+// se scraper/scraper/pipeline.py's ON CONFLICT-klausul for hvorfor scraperens
+// egen næste kørsel aldrig overskriver dette. ---
+
+app.post("/api/listings/:itemKey/dismiss", requireAuth, async (c) => {
+  const db = getDbClient(c.env);
+  const itemKey = c.req.param("itemKey");
+  if (!itemKey) {
+    return c.json({ error: "itemKey is required" }, 400);
+  }
+  await ensureColumn(db, "listings", "dismissed", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(db, "listings", "dismissed_reason", "TEXT");
+  await db.execute({
+    sql: "UPDATE listings SET dismissed = 1, dismissed_reason = 'manual' WHERE item_key = ?",
+    args: [itemKey],
+  });
+  return c.json({ ok: true });
+});
+
+app.post("/api/listings/:itemKey/undismiss", requireAuth, async (c) => {
+  const db = getDbClient(c.env);
+  const itemKey = c.req.param("itemKey");
+  if (!itemKey) {
+    return c.json({ error: "itemKey is required" }, 400);
+  }
+  await ensureColumn(db, "listings", "dismissed", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(db, "listings", "dismissed_reason", "TEXT");
+  await db.execute({
+    sql: "UPDATE listings SET dismissed = 0, dismissed_reason = NULL WHERE item_key = ?",
+    args: [itemKey],
+  });
+  return c.json({ ok: true });
 });
 
 // --- Dynamiske søgetermer ("ønskeseddel"), se scraper/scraper/search_terms.py. ---
