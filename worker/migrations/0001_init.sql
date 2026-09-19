@@ -13,16 +13,59 @@ CREATE TABLE IF NOT EXISTS users (
     role TEXT NOT NULL DEFAULT 'admin'
 );
 
--- Dummy example data table, matches scraper/scraper/sources/jsonplaceholder.py
--- and worker/src/index.ts's /api/posts endpoints.
-CREATE TABLE IF NOT EXISTS posts (
+-- Brugte H/M-klasse sikkerhedsstøvsuger-annoncer, matcher
+-- scraper/scraper/pipeline.py's LOCAL_SCHEMA/TURSO_SCHEMA og
+-- worker/src/index.ts's /api/listings-endpoint.
+CREATE TABLE IF NOT EXISTS listings (
     item_key TEXT PRIMARY KEY,
-    post_id INTEGER NOT NULL,
-    user_id INTEGER NOT NULL,
-    title TEXT NOT NULL,
-    body TEXT NOT NULL,
-    scraped_at TEXT NOT NULL
-    -- A future `owner_user_id INTEGER REFERENCES users(id)` column can be added
-    -- here later (per-row ownership / multi-tenancy) without changing the API
-    -- endpoints above - it would just be one more optional column.
+    source TEXT NOT NULL,
+    title TEXT,
+    url TEXT,
+    location TEXT,
+    brand TEXT,
+    model_key TEXT,
+    model_label TEXT,
+    dust_class TEXT,
+    klasse_kilde TEXT,
+    asbestos_approved TEXT,
+    container_l REAL,
+    battery INTEGER NOT NULL DEFAULT 0,
+    price_dkk REAL,
+    landed_price_dkk REAL,
+    shipping_customs_dkk REAL,
+    origin_country TEXT,
+    filterrensning TEXT,
+    flowsensor TEXT,
+    stikdaase TEXT,
+    medfoelger TEXT,
+    score INTEGER,
+    vurdering TEXT,
+    classification_method TEXT,
+    mangler_info TEXT,
+    spoergsmaal_til_saelger TEXT,
+    first_seen TEXT NOT NULL,
+    last_seen TEXT,
+    raw_json TEXT
+);
+
+-- Dynamiske søgetermer ("ønskeseddel"), redigerbar fra webapp'en -- se
+-- scraper/scraper/search_terms.py og worker/src/index.ts's
+-- /api/search-terms-endpoints.
+CREATE TABLE IF NOT EXISTS search_terms (
+    term TEXT PRIMARY KEY,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'Sikkerhedsstøvsuger'
+);
+
+-- Prisfalds-detektion, rent append -- se scraper/scraper/price_history.py.
+CREATE TABLE IF NOT EXISTS price_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_key TEXT NOT NULL,
+    old_price_dkk REAL NOT NULL,
+    new_price_dkk REAL NOT NULL,
+    pct_change REAL NOT NULL,
+    old_vurdering TEXT,
+    new_vurdering TEXT,
+    observed_at TEXT NOT NULL
 );

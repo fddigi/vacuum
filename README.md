@@ -1,3 +1,84 @@
+# vacuum -- sikkerhedsstøvsuger-overvågning (støvklasse H/M)
+
+Overvåger brugtmarkeder for byggestøvsugere i støvklasse H (primært) og M
+(sekundært, kun spec-godkendte modeller), der lovligt og teknisk kan bruges til
+kvartsstøv og asbestholdigt støv ved privat renovering i Danmark. Bygget på
+`fddigi/scraper-boilerplate` (se resten af denne fil for skabelonens generelle
+dokumentation) -- denne sektion dækker kun det projektspecifikke.
+
+## Kilder
+
+| Kilde | Status | Note |
+|---|---|---|
+| dba.dk | ✅ Aktiv | Playwright, Schibsted-platform |
+| guloggratis.dk | ✅ Aktiv | Playwright, egen React-DOM |
+| kleinanzeigen.de | ✅ Aktiv | Playwright, frisk context pr. forespørgsel |
+| blocket.se | ✅ Aktiv | Samme Schibsted-platform som dba.dk |
+| vinted.dk | ✅ Aktiv, **lavt forventet udbytte** | Tøj-/livsstils-markedsplads, ubekræftet dækning for industriudstyr |
+| klaravik.dk | ✅ Aktiv | Auktion, aktuelt bud (ikke fast pris) |
+| auktionshuset.dk ("dab.dk" i specen) | ✅ Aktiv, **stærkeste fund ved test** | Konkurs-/overskudsauktioner -- reelt lager af professionelt udstyr |
+| retrade.eu | ✅ Aktiv, **lavt forventet udbytte** | Domineret af tung entreprenørmaskineri, 0 hits ved test på "kärcher"/"støvsuger" |
+| Facebook Marketplace | ❌ Udeladt | Kræver login, aggressiv bot-detektion, imod Metas ToS at automatisere |
+| eBay Browse API, Tradera Open Platform | ❌ Udeladt | Kræver egen gratis developer-registrering (developer.ebay.com / Tradera) -- ikke oprettet endnu |
+| campenauktioner.dk | ❌ Udeladt | Midlertidigt utilgængelig ved research ("opdatering") -- prøv igen senere |
+| nettoauktion.dk | ❌ Droppet | Domænet findes ikke i praksis |
+
+## Kritiske fund fra live-test (2026-09-19)
+
+Flere reelle bugs blev fundet og rettet ved at teste mod de faktiske,
+levende markedspladser (ikke kun syntetiske unit-tests):
+
+- **Falsk bot-wall på auktionshuset.dk**: en "captcha"-tekstmarkør udløste
+  fejlagtigt bot-wall-detektion, fordi siden permanent indlejrer et
+  reCAPTCHA-script til login-formularen, uafhængigt af søgeresultatet.
+  Markøren tjekkes nu kun ved 0 fundne kort, og "captcha" er droppet helt fra
+  denne kildes markørliste.
+- **guloggratis.dk filtrerede ALLE rigtige annoncer fra**: en off-by-one i
+  href-slash-tælling (`<= 3` i stedet for `<= 2`) betød at ingen ægte annoncer
+  nogensinde blev godkendt.
+- **klaravik.dk filtrerede ALLE annoncer fra som "afsluttede"**: siden
+  renderer status-tags (afsluttet/reservepris) i DOM'et for hvert kort
+  samtidig, uanset faktisk status -- kun CSS skjuler de irrelevante. Rettet
+  til at bruge `.is_visible()` i stedet for blot elementets tilstedeværelse.
+- **For aggressiv "kun svag evidens"-afvisning**: rigtige Nilfisk
+  Attix-annoncer med et modelnummer models.py ikke dækker (fx "Attix 751-11")
+  blev automatisk afvist, fordi ordet "industristøvsuger" indgår i teksten.
+  Et kendt mærke nedgraderer nu til "se nærmere" (bed om typeskilt) i stedet.
+- **Fejlplaceret blacklist-mønster**: `karcher_wd_serie` manglede
+  mærke-kontekst og ramte en Nilfisk-annonce ved et uheld.
+
+Se git-historikken/kommentarerne i `scraper/scraper/sources/*.py` og
+`scraper/scraper/models.py` for de fulde begrundelser.
+
+## Kendte begrænsninger (bevidst ikke bygget i denne omgang)
+
+- **Ingen notifikationer/dagsrapport**: specen beder om "underret straks ved
+  køb nu" og "dagsrapport kl. 07:00" -- boilerplaten har ingen push-/mail-/
+  webhook-mekanisme indbygget (kun webapp-visning). Kræver et valg af kanal
+  (mail? Slack/Discord-webhook? push?) før det kan bygges.
+- **`afstand_km` er ikke implementeret** (kræver geokodning af sælgers
+  lokationstekst mod en fast radius) -- `lokation` vises, men ikke afstand.
+- **Model-whitelisten er ikke udtømmende** (spec selv erkender dette i sektion
+  2.6, "verificér typeskilt") -- ukendte modelnumre fra kendte mærker
+  (Nilfisk/Kärcher/Festool/Flex/Starmix/Metabo/Bosch/...) surfacer som "se
+  nærmere" med en note om at bede om typeskiltet, i stedet for at blive
+  droppet eller fejlagtigt godkendt.
+- **`filter_replacement_estimate_dkk` (800 kr.) og "70%-af-nypris"-tolkningen**
+  er egne, dokumenterede antagelser lagt oven på specens tekst -- se
+  `scraper/scraper/classify.py`'s docstring, justér i `config.yaml` hvis de
+  virker forkerte i praksis.
+
+## Lokal opstart
+
+```bash
+make venv
+make test              # 23 unit-tests: model-whitelist/blacklist, scoring-motor
+.venv/bin/python -m scraper.main --source dba   # kør én kilde manuelt
+make install-launchd SCRAPE_INTERVAL_SECONDS=21600   # spec: "kør hver 6. time"
+```
+
+---
+
 # scraper-boilerplate
 
 Skabelon-repo (tænkt som GitHub "template repository") for mønsteret:

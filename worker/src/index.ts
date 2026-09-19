@@ -88,71 +88,140 @@ app.get("/api/me", requireAuth, (c) => {
   return c.json({ username: session.sub, role: session.role });
 });
 
-// --- Data endpoints against the dummy `posts` table (matches
-// scraper/scraper/sources/jsonplaceholder.py). Both reads and writes sit behind
-// requireAuth - there is no unauthenticated API surface beyond /login and /. ---
+// --- Data endpoints against the `listings` table (matches
+// scraper/scraper/pipeline.py and worker/migrations/0001_init.sql). Display-only:
+// the scraper writes exclusively via scraper-core's delta-sync outbox, so there
+// is no POST /api/listings write endpoint. ---
 
-app.get("/api/posts", requireAuth, async (c) => {
+const DEFAULT_CATEGORY = "Sikkerhedsstøvsuger";
+
+async function ensureColumn(
+  db: ReturnType<typeof getDbClient>,
+  table: string,
+  column: string,
+  ddl: string,
+): Promise<void> {
+  const result = await db.execute(`PRAGMA table_info(${table})`);
+  const existingColumns = new Set(result.rows.map((row) => row.name as string));
+  if (existingColumns.has(column)) {
+    return;
+  }
+  await db.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+}
+
+app.get("/api/listings", requireAuth, async (c) => {
   const db = getDbClient(c.env);
-  const limit = Math.min(Number(c.req.query("limit") ?? "50") || 50, 200);
+  const limit = Math.min(Number(c.req.query("limit") ?? "500") || 500, 2000);
+
+  // Filtre matcher en fremtidig frontend-dropdown for vurdering/mærke/kilde.
+  const vurdering = c.req.query("vurdering");
+  const brand = c.req.query("brand");
+  const source = c.req.query("source");
+  const dustClass = c.req.query("dust_class");
+
+  const conditions: string[] = [];
+  const args: (string | number)[] = [];
+  if (vurdering) {
+    conditions.push("vurdering = ?");
+    args.push(vurdering);
+  }
+  if (brand) {
+    conditions.push("brand = ?");
+    args.push(brand);
+  }
+  if (source) {
+    conditions.push("source = ?");
+    args.push(source);
+  }
+  if (dustClass) {
+    conditions.push("dust_class = ?");
+    args.push(dustClass);
+  }
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  args.push(limit);
+
+  // Idempotent: undgår en "no such table"-fejl hvis endpointet rammes før
+  // scraperen nogensinde har logget et prisfald.
+  await db.execute(
+    `CREATE TABLE IF NOT EXISTS price_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      item_key TEXT NOT NULL, old_price_dkk REAL NOT NULL,
+      new_price_dkk REAL NOT NULL, pct_change REAL NOT NULL,
+      old_vurdering TEXT, new_vurdering TEXT, observed_at TEXT NOT NULL
+    )`,
+  );
+
+  // Spec: "marker annoncer der har ligget over 30 dage som forhandlings-
+  // mulighed" -- ren query-tids-udledning af first_seen, ingen separat kolonne
+  // (undgår at et beregnet felt kan blive stale mellem scraper-kørsler).
   const result = await db.execute({
-    sql: "SELECT item_key, post_id, user_id, title, body, scraped_at FROM posts ORDER BY post_id LIMIT ?",
-    args: [limit],
+    sql: `SELECT listings.*,
+      (julianday('now') - julianday(first_seen)) >= 30 AS forhandlingsmulighed,
+      (SELECT pct_change FROM price_history ph
+        WHERE ph.item_key = listings.item_key ORDER BY ph.id DESC LIMIT 1) AS latest_price_drop_pct,
+      (SELECT observed_at FROM price_history ph
+        WHERE ph.item_key = listings.item_key ORDER BY ph.id DESC LIMIT 1) AS latest_price_drop_at
+      FROM listings ${where}
+      ORDER BY CASE vurdering WHEN 'køb nu' THEN 0 WHEN 'se nærmere' THEN 1 ELSE 2 END,
+               score DESC, first_seen DESC
+      LIMIT ?`,
+    args,
   });
-  return c.json({ posts: result.rows });
+  return c.json({ listings: result.rows });
 });
 
-app.get("/api/posts/:itemKey", requireAuth, async (c) => {
+app.get("/api/listings/:itemKey", requireAuth, async (c) => {
   const db = getDbClient(c.env);
   const itemKey = c.req.param("itemKey");
   if (!itemKey) {
     return c.json({ error: "itemKey is required" }, 400);
   }
   const result = await db.execute({
-    sql: "SELECT item_key, post_id, user_id, title, body, scraped_at FROM posts WHERE item_key = ?",
+    sql: "SELECT * FROM listings WHERE item_key = ?",
     args: [itemKey],
   });
   if (result.rows.length === 0) {
     return c.json({ error: "not found" }, 404);
   }
-  return c.json({ post: result.rows[0] });
+  return c.json({ listing: result.rows[0] });
 });
 
-// Write endpoint - demonstrates the "writes behind auth" half of the pattern.
-// The scraper itself writes via scraper-core's delta-sync outbox, not this API;
-// this exists for e.g. a future admin panel doing manual corrections.
-app.post("/api/posts", requireAuth, async (c) => {
-  type PostBody = {
-    item_key?: string;
-    post_id?: number;
-    user_id?: number;
-    title?: string;
-    body?: string;
-  };
-  let body: PostBody;
-  try {
-    body = await c.req.json<PostBody>();
-  } catch {
-    body = {};
-  }
+// --- Dynamiske søgetermer ("ønskeseddel"), se scraper/scraper/search_terms.py. ---
 
-  if (!body.item_key || !body.title) {
-    return c.json({ error: "item_key and title are required" }, 400);
-  }
-
+app.get("/api/search-terms", requireAuth, async (c) => {
   const db = getDbClient(c.env);
-  await db.execute({
-    sql: `INSERT INTO posts (item_key, post_id, user_id, title, body, scraped_at)
-          VALUES (?, ?, ?, ?, ?, datetime('now'))
-          ON CONFLICT(item_key) DO UPDATE SET
-            post_id = excluded.post_id,
-            user_id = excluded.user_id,
-            title = excluded.title,
-            body = excluded.body,
-            scraped_at = excluded.scraped_at`,
-    args: [body.item_key, body.post_id ?? 0, body.user_id ?? 0, body.title, body.body ?? ""],
-  });
+  await ensureColumn(db, "search_terms", "category", `TEXT NOT NULL DEFAULT '${DEFAULT_CATEGORY}'`);
+  const result = await db.execute(
+    "SELECT term, category, enabled, created_at FROM search_terms ORDER BY created_at DESC",
+  );
+  return c.json({ searchTerms: result.rows });
+});
 
+app.post("/api/search-terms", requireAuth, async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const term = typeof body.term === "string" ? body.term.trim() : "";
+  if (!term) {
+    return c.json({ error: "term is required" }, 400);
+  }
+  const category =
+    typeof body.category === "string" && body.category.trim() ? body.category.trim() : DEFAULT_CATEGORY;
+  const db = getDbClient(c.env);
+  await ensureColumn(db, "search_terms", "category", `TEXT NOT NULL DEFAULT '${DEFAULT_CATEGORY}'`);
+  await db.execute({
+    sql: `INSERT INTO search_terms (term, category, enabled, created_at) VALUES (?, ?, 1, ?)
+          ON CONFLICT(term) DO UPDATE SET enabled = 1, category = excluded.category`,
+    args: [term, category, new Date().toISOString()],
+  });
+  return c.json({ ok: true, term, category });
+});
+
+app.delete("/api/search-terms/:term", requireAuth, async (c) => {
+  const term = c.req.param("term");
+  if (!term) {
+    return c.json({ error: "term is required" }, 400);
+  }
+  const db = getDbClient(c.env);
+  await db.execute({ sql: "DELETE FROM search_terms WHERE term = ?", args: [term] });
   return c.json({ ok: true });
 });
 

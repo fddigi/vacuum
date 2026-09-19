@@ -1,0 +1,199 @@
+# Konfiguration for vacuum-scraperen (brugte sikkerhedsstøvsugere, støvklasse H/M).
+# Se scraper/scraper/models.py for selve model-whitelisten/blacklisten (for stor
+# til at leve praktisk i YAML) og scraper/scraper/classify.py for antagelser
+# lagt oven på specens tekst (filterestimat, 70%-af-nypris-tolkning osv.).
+
+sources:
+  dba: true
+  guloggratis: true
+  kleinanzeigen: true
+  blocket: true
+  vinted: true       # lavt forventet udbytte (tøj-/livsstils-markedsplads), se sources/vinted.py
+  klaravik: true
+  auktionshuset: true  # "dab.dk" i den oprindelige spec -- stærkeste fund ved research
+  retrade: true        # lavt forventet udbytte (tung erhvervsmaskineri), se sources/retrade.py
+  # BEVIDST UDELADT (se README.md):
+  #  - facebook: høj ToS-/bot-detektions-risiko, kræver login -- ikke bygget.
+  #  - ebay/tradera: kræver brugerens EGEN gratis developer-API-nøgle
+  #    (developer.ebay.com / Tradera Open Platform) -- ikke registreret endnu.
+  #  - campenauktioner.dk: midlertidigt utilgængelig ved research (side nede
+  #    for opdatering) -- ingen selectors kunne bekræftes, prøv igen senere.
+  #  - nettoauktion.dk: domænet findes ikke i praksis, droppet helt.
+
+# Per-kilde min-interval (timer) -- Kleinanzeigen/Blocket øger blokeringsrisiko
+# ved for hyppig hentning. Spec: "kør hver 6. time" er selve launchd-intervallet
+# (se infra/launchd/scraper.template.plist), dette er et EKSTRA loft ovenpå.
+sources_min_interval_hours:
+  kleinanzeigen: 6
+  blocket: 6
+  vinted: 6
+
+search_terms:
+  # Specens egne generiske termer (agent-prompt "SØGETERMER"-sektion).
+  primary:
+    - "H-klasse støvsuger"
+    - "sikkerhedsstøvsuger"
+    - "asbestsuger"
+    - "støvklasse H"
+    - "Sicherheitssauger Klasse H"
+    - "Asbestsauger"
+    - "klass H"
+  # Modelwhitelistens ~68 mærke+model-kombinationer, søgt hver for sig (spec:
+  # "søg hver enkelt separat"). Genereret fra scraper/scraper/models.py --
+  # hold denne liste i sync hvis models.py's whitelist ændres (der er bevidst
+  # ingen automatisk kodegenerering her, for at YAML'en forbliver menneske-
+  # læselig og selvstændigt redigerbar uden at køre Python).
+  secondary:
+    - "Nilfisk Attix 30-0H"
+    - "Nilfisk Attix 30-2H"
+    - "Nilfisk Attix 33-2H"
+    - "Nilfisk Attix 44-2H"
+    - "Nilfisk Attix 50-0H"
+    - "Nilfisk Attix 550-0H"
+    - "Nilfisk Attix 751-0H"
+    - "Nilfisk Attix 965"
+    - "Nilfisk Attix 995"
+    - "Nilfisk AERO 26-2H"
+    - "Nilfisk IVB 5 H"
+    - "Nilfisk IVB 7 H"
+    - "Kärcher NT 30/1 Tact Te H"
+    - "Kärcher NT 30/1 Ap Te H"
+    - "Kärcher NT 35/1 Tact Te H"
+    - "Kärcher NT 50/1 Tact Te H"
+    - "Kärcher NT 75/1 Tact Me H"
+    - "Festool CTH 26"
+    - "Festool CTH 48"
+    - "Protool VCP 260 E-H"
+    - "Protool VCP 480 E-H"
+    - "Starmix ISC H 1425"
+    - "Starmix ISC 1418 MINI H"
+    - "Starmix ISC 1625 MPB H"
+    - "Starmix iPulse ISP 1635 H"
+    - "Starmix iPulse Safe 1635 EW H"
+    - "Starmix iPulse H-1235"
+    - "Starmix GS H-1232"
+    - "Starmix HS AR-1635 EHP"
+    - "Starmix Energetic 1420 H"
+    - "Starmix Vaccufix H"
+    - "Bosch GAS 35 H AFC"
+    - "Flex VCE 33 H AC"
+    - "Flex VCE 44 H AC"
+    - "Metabo ASA 30 H PC"
+    - "Eibenstock DSS 35 HIP"
+    - "Numatic HZ200"
+    - "Numatic HZ370"
+    - "Numatic HZD750"
+    - "Ermator S26"
+    - "Ermator S36"
+    - "Husqvarna S26"
+    - "Dustcontrol DC Tromb 400 H"
+    - "Ruwac NA7-26"
+    - "Hilti VC 40H-X"
+    - "Ronda 2800 H"
+    # M-klasse (kun spec-godkendte modeller, sektion 2.7)
+    - "Bosch GAS 35 M AFC"
+    - "Bosch GAS 55 M AFC"
+    - "Makita VC4210M"
+    - "Nilfisk Attix 30-2M PC"
+    - "Nilfisk Attix 33-2M PC"
+    - "Nilfisk Attix 50-2M PC"
+    - "Kärcher NT 30/1 Tact Te M"
+    - "Kärcher NT 40/1 Tact Te M"
+    - "Flex VCE 33 M AC"
+    - "Metabo ASR 35 M ACP"
+    - "Metabo ASA 30 M PC"
+    - "Milwaukee AS 30 MAC"
+    - "Milwaukee AS 42 MAC"
+    - "Festool CTM 26"
+    - "Festool CTM 36"
+    - "Festool CTM 48"
+    - "Hilti VC 20-UM"
+    - "Hilti VC 40-UM"
+    - "Hilti VC 20M-X"
+    - "Hilti VC 40M-X"
+    - "Fein Dustex 35 MX"
+    - "Mirka DE 1230 M"
+
+vinted:
+  max_results_per_term: 20
+  timeout_s: 20
+  min_delay_s: 5
+  max_delay_s: 15
+
+currency:
+  eur_dkk: 7.46
+  sek_dkk: 0.70
+  usd_dkk: 6.90
+
+# Import-omkostninger for sælgere UDENFOR EU/EØS. I praksis sjældent relevant
+# for denne kategori (de fleste fund er DK/DE/SE), men beholdt for konsistens
+# med boilerplate-mønsteret og for evt. fremtidige ikke-EU-fund.
+import_costs:
+  vat_pct: 25
+  duty_threshold_eur: 150
+  duty_pct: 2.7          # HS-kode 8508 (støvsugere) -- IKKE bekræftet præcist, se PASPEAKERS' tilsvarende advarsel
+  default_shipping_dkk: 500
+  eu_country_codes:
+    - DK
+    - DE
+    - SE
+    - AT
+    - BE
+    - BG
+    - HR
+    - CY
+    - CZ
+    - EE
+    - ES
+    - FI
+    - FR
+    - GR
+    - HU
+    - IE
+    - IT
+    - LT
+    - LU
+    - LV
+    - MT
+    - NL
+    - PL
+    - PT
+    - RO
+    - SI
+    - SK
+
+# Fast beløb lagt oveni landed_price_dkk før sammenligning med prislofterne
+# nedenfor, MEDMINDRE annoncen selv nævner et nyt/nyligt skiftet filter --
+# se classify.py's docstring for den fulde begrundelse (spec: "regn 700-900
+# kr. oveni til nyt H-filterelement PÅ ENHVER BRUGT MASKINE").
+filter_replacement_estimate_dkk: 800
+
+# PRISLOFTER (spec, DKK, inkl. evt. transport + filterestimat ovenfor).
+# koeb_max = aldrig køb over denne pris. god_handel_max = under denne pris
+# kan annoncen (sammen med opfyldte hårde krav) blive "køb nu" uden yderligere
+# due diligence -- se classify.py.
+prislofter:
+  kompakt_h:   # 25-35 l
+    koeb_max: 3500
+    god_handel_max: 2500
+  stor_h:      # 40-75 l
+    koeb_max: 5000
+    god_handel_max: 3500
+  m_klasse:    # 30-45 l
+    koeb_max: 2000
+    god_handel_max: 1200
+
+playwright:
+  # true = ingen synlige Chrome-vinduer (Playwright 1.61+'s nye headless-
+  # tilstand er markant sværere at fingeraftrykke, se seng/PASPEAKERS' samme valg).
+  headless: true
+  min_delay_s: 3
+  max_delay_s: 8
+  max_pages_per_term: 3
+  # ~75 søgetermer (7 generiske + 68 modelspecifikke) på tværs af 6
+  # Playwright-baserede kilder -- sat højt nok til at nå hele listen inden for
+  # ét launchd-interval (6 timer), se main.py's SOURCE_TIMEOUT_OVERRIDES for
+  # Kleinanzeigens separate watchdog-forlængelse.
+  max_pages_total: 80
+
+db_path: "./data/local.db"

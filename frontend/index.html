@@ -2,25 +2,69 @@
 <html lang="da">
 <head>
   <meta charset="utf-8" />
-  <title>Data</title>
+  <title>Sikkerhedsstøvsugere</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #f7f7f5; --card: #fff; --border: #e2e2df; --text: #1c1c1a; --muted: #6b6b66;
+      --koeb: #1a7a3c; --koeb-bg: #e6f5eb; --se: #a8730a; --se-bg: #fdf1dd;
+      --afvis: #999; --afvis-bg: #f0f0ee;
+    }
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 24px; }
+    h1 { font-size: 1.4rem; margin: 0 0 4px; }
+    .topbar { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
+    .filters { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    select, button { font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--card); }
+    button { cursor: pointer; }
+    .cards { display: flex; flex-direction: column; gap: 10px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+    .card-top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; white-space: nowrap; }
+    .badge.koeb { color: var(--koeb); background: var(--koeb-bg); }
+    .badge.se { color: var(--se); background: var(--se-bg); }
+    .badge.afvis { color: var(--afvis); background: var(--afvis-bg); }
+    .title { font-weight: 600; font-size: 1.02rem; }
+    .title a { color: inherit; text-decoration: none; }
+    .title a:hover { text-decoration: underline; }
+    .meta { color: var(--muted); font-size: 0.85rem; margin-top: 2px; }
+    .price { font-size: 1.15rem; font-weight: 700; white-space: nowrap; }
+    .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .tag { font-size: 0.75rem; padding: 2px 8px; border-radius: 6px; background: var(--afvis-bg); color: var(--text); }
+    .missing { margin-top: 8px; font-size: 0.85rem; color: var(--se); }
+    .missing ul { margin: 4px 0 0; padding-left: 18px; }
+    details { margin-top: 8px; }
+    summary { cursor: pointer; font-size: 0.85rem; color: var(--muted); }
+    #error { color: #b3261e; }
+    #empty { color: var(--muted); padding: 24px 0; }
+  </style>
 </head>
 <body>
-  <h1>Scraped data</h1>
-  <p>Logget ind som <span id="whoami">...</span> (<button id="logout">log ud</button>)</p>
-  <table id="posts-table" border="1" cellpadding="4">
-    <thead>
-      <tr><th>id</th><th>user_id</th><th>title</th><th>scraped_at</th></tr>
-    </thead>
-    <tbody></tbody>
-  </table>
-  <p id="error" style="color: red"></p>
+  <div class="topbar">
+    <div>
+      <h1>Sikkerhedsstøvsugere (støvklasse H/M)</h1>
+      <div class="meta">Logget ind som <span id="whoami">...</span> · <button id="logout">log ud</button></div>
+    </div>
+    <div class="filters">
+      <select id="filter-vurdering">
+        <option value="">Alle vurderinger</option>
+        <option value="køb nu">Køb nu</option>
+        <option value="se nærmere">Se nærmere</option>
+        <option value="afvis">Afvist</option>
+      </select>
+      <select id="filter-source">
+        <option value="">Alle kilder</option>
+      </select>
+      <button id="refresh">Opdatér</button>
+    </div>
+  </div>
+
+  <div id="cards" class="cards"></div>
+  <p id="empty" style="display: none">Ingen annoncer matcher filtret endnu.</p>
+  <p id="error"></p>
 
   <script src="config.js"></script>
   <script>
-    // Session lives as a bearer token in localStorage, NOT a cookie - see
-    // login.html's comment for why (Safari blocks third-party cookies outright).
-    // This page never touches a password or API key, only this one token.
     function authHeaders() {
       const token = localStorage.getItem("session_token");
       return token ? { Authorization: `Bearer ${token}` } : {};
@@ -40,25 +84,98 @@
       return res.json();
     }
 
-    async function loadPosts() {
-      const res = await fetch(`${API_BASE}/api/posts`, { headers: authHeaders() });
+    function parseJsonArray(text) {
+      try {
+        const value = JSON.parse(text || "[]");
+        return Array.isArray(value) ? value : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function badgeClass(vurdering) {
+      if (vurdering === "køb nu") return "koeb";
+      if (vurdering === "se nærmere") return "se";
+      return "afvis";
+    }
+
+    function formatBool(value) {
+      if (value === "true") return "ja";
+      if (value === "false") return "nej";
+      return "ukendt";
+    }
+
+    function renderCard(row) {
+      const card = document.createElement("div");
+      card.className = "card";
+
+      const missing = parseJsonArray(row.mangler_info);
+      const questions = parseJsonArray(row.spoergsmaal_til_saelger);
+      const accessories = parseJsonArray(row.medfoelger);
+
+      const priceText = row.price_dkk != null ? `${Math.round(row.price_dkk).toLocaleString("da-DK")} kr.` : "pris ukendt";
+      const ageFlag = row.forhandlingsmulighed ? ` · <span class="tag">30+ dage &rarr; forhandlingsmulighed</span>` : "";
+
+      card.innerHTML = `
+        <div class="card-top">
+          <div>
+            <span class="badge ${badgeClass(row.vurdering)}">${row.vurdering ?? "ukendt"}</span>
+            <div class="title"><a href="${row.url}" target="_blank" rel="noopener">${row.title ?? "(uden titel)"}</a></div>
+            <div class="meta">${row.source ?? ""}${row.location ? " · " + row.location : ""} · score ${row.score ?? 0}${ageFlag}</div>
+          </div>
+          <div class="price">${priceText}</div>
+        </div>
+        <div class="tags">
+          ${row.brand ? `<span class="tag">${row.brand} ${row.model_label ?? ""}</span>` : ""}
+          <span class="tag">Klasse: ${row.dust_class ?? "ukendt"}${row.klasse_kilde ? " (" + row.klasse_kilde + ")" : ""}</span>
+          <span class="tag">Asbestgodkendt: ${formatBool(row.asbestos_approved)}</span>
+          ${row.container_l ? `<span class="tag">${row.container_l} l</span>` : ""}
+          ${row.battery ? `<span class="tag">Batteri</span>` : ""}
+          <span class="tag">Filterrens: ${row.filterrensning ?? "ukendt"}</span>
+          ${accessories.length ? `<span class="tag">Medfølger: ${accessories.join(", ")}</span>` : ""}
+        </div>
+        ${missing.length ? `<div class="missing"><strong>Mangler info:</strong><ul>${missing.map((m) => `<li>${m}</li>`).join("")}</ul></div>` : ""}
+        ${questions.length ? `<details><summary>Spørgsmål til sælger (${questions.length})</summary><ul>${questions.map((q) => `<li>${q}</li>`).join("")}</ul></details>` : ""}
+      `;
+      return card;
+    }
+
+    async function loadListings() {
+      const params = new URLSearchParams();
+      const vurdering = document.getElementById("filter-vurdering").value;
+      const source = document.getElementById("filter-source").value;
+      if (vurdering) params.set("vurdering", vurdering);
+      if (source) params.set("source", source);
+
+      const res = await fetch(`${API_BASE}/api/listings?${params.toString()}`, { headers: authHeaders() });
       if (!res.ok) {
         document.getElementById("error").textContent = "Kunne ikke hente data.";
         return;
       }
-      const { posts } = await res.json();
-      const tbody = document.querySelector("#posts-table tbody");
-      tbody.innerHTML = "";
-      for (const post of posts) {
-        const row = document.createElement("tr");
-        for (const value of [post.item_key, post.user_id, post.title, post.scraped_at]) {
-          const cell = document.createElement("td");
-          cell.textContent = value; // textContent, not innerHTML - avoids XSS from scraped content
-          row.appendChild(cell);
+      const { listings } = await res.json();
+      const container = document.getElementById("cards");
+      container.innerHTML = "";
+      document.getElementById("empty").style.display = listings.length ? "none" : "block";
+      for (const row of listings) {
+        container.appendChild(renderCard(row));
+      }
+
+      const sourceSelect = document.getElementById("filter-source");
+      if (sourceSelect.dataset.populated !== "1") {
+        const sources = [...new Set(listings.map((r) => r.source))].sort();
+        for (const s of sources) {
+          const opt = document.createElement("option");
+          opt.value = s;
+          opt.textContent = s;
+          sourceSelect.appendChild(opt);
         }
-        tbody.appendChild(row);
+        sourceSelect.dataset.populated = "1";
       }
     }
+
+    document.getElementById("filter-vurdering").addEventListener("change", loadListings);
+    document.getElementById("filter-source").addEventListener("change", loadListings);
+    document.getElementById("refresh").addEventListener("click", loadListings);
 
     document.getElementById("logout").addEventListener("click", async () => {
       await fetch(`${API_BASE}/logout`, { method: "POST", headers: authHeaders() }).catch(() => {});
@@ -70,7 +187,7 @@
       const me = await requireSession();
       if (!me) return;
       document.getElementById("whoami").textContent = me.username;
-      await loadPosts();
+      await loadListings();
     })();
   </script>
 </body>

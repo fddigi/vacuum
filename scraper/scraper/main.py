@@ -1,46 +1,194 @@
-"""Entry point for the dummy scraper.
+"""Entry point for vacuum-scraperen (brugte H/M-klasse sikkerhedsstøvsugere).
 
-Run directly with `python -m scraper.main`, via the `scraper-run` console script, or
-through the launchd job installed by `make install-launchd`.
+Kilder: dba.dk, guloggratis.dk, kleinanzeigen.de, blocket.se, vinted.dk,
+klaravik.dk, auktionshuset.dk, retrade.eu. Facebook Marketplace, eBay Browse
+API og Traderas API er BEVIDST UDELADT i v1 (høj ToS/teknisk risiko hhv.
+kræver brugerens egen developer-registrering, se README.md).
+
+Run directly with `python -m scraper.main`, via the `scraper-run` console
+script, or through the launchd job installed by `make install-launchd`.
 """
 
 from __future__ import annotations
 
+import argparse
+import fcntl
 import logging
 import sys
+from pathlib import Path
 
-from scraper_core.config import get_settings
+from scraper_core.config import Settings, get_settings
 from scraper_core.healthcheck import ping_fail, ping_success
 from scraper_core.local_db import LocalStore
 from scraper_core.logging_setup import configure_logging
 from scraper_core.sync import sync_pending
 from scraper_core.turso_client import TursoClient
 
-from scraper.sources.jsonplaceholder import TURSO_SCHEMA, scrape_into_local_store
+from .pipeline import TURSO_SCHEMA, run_source
+from .price_history import sync_price_history_to_turso
+from .search_terms import load_search_terms
+from .source_cadence import SOURCE_STATE_SCHEMA, mark_source_run, should_run_source
+from .sources import (
+    auktionshuset,
+    blocket,
+    dba,
+    guloggratis,
+    klaravik,
+    kleinanzeigen,
+    retrade,
+    vinted,
+)
+from .vacuum_config import load_config
 
 logger = logging.getLogger(__name__)
 
+SOURCE_MODULES = {
+    "dba": dba,
+    "guloggratis": guloggratis,
+    "kleinanzeigen": kleinanzeigen,
+    "blocket": blocket,
+    "vinted": vinted,
+    "klaravik": klaravik,
+    "auktionshuset": auktionshuset,
+    "retrade": retrade,
+}
 
-def run() -> int:
+# Kleinanzeigen/Blocket har egen (langsommere) side-for-side-throttling internt
+# (se deres fetch()) -- samme timeout-udvidelse som PASPEAKERS fandt nødvendigt
+# for Kleinanzeigen ved et voksende søgefelt.
+SOURCE_TIMEOUT_OVERRIDES = {
+    "kleinanzeigen": 900,
+}
+
+# To uafhængige triggere (launchd-schedule + evt. fremtidig "Kør nu"-knap) kan
+# starte en kørsel næsten samtidig -- denne fil-lås forhindrer at de to racer
+# på samme lokale SQLite-fil.
+LOCK_PATH = Path("data/.scraper.lock")
+
+
+def run(force_source: str | None = None) -> int:
     settings = get_settings()
     configure_logging(settings.log_level)
 
+    LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    lock_file = LOCK_PATH.open("w")
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        logger.warning(
+            "Another scraper run is already in progress (lock held on %s) - skipping this run",
+            LOCK_PATH,
+        )
+        lock_file.close()
+        return 0
+
+    try:
+        return _run_locked(settings, force_source=force_source)
+    finally:
+        fcntl.flock(lock_file, fcntl.LOCK_UN)
+        lock_file.close()
+
+
+def _run_locked(settings: Settings, force_source: str | None = None) -> int:
+    vacuum_config = load_config()
+    min_interval_hours = vacuum_config.get("sources_min_interval_hours", {})
+
     try:
         with LocalStore(settings.local_sqlite_path) as store:
-            changed = scrape_into_local_store(store, settings.scrape_source_url)
+            store.executescript(SOURCE_STATE_SCHEMA)
+            total_raw = 0
+            total_changed = 0
+            synced = 0
+
+            enabled_sources = [
+                name for name, enabled in vacuum_config.get("sources", {}).items() if enabled
+            ]
+            if force_source is not None:
+                enabled_sources = [force_source]
 
             if settings.turso_configured:
                 with TursoClient(settings) as turso:
-                    turso.execute(TURSO_SCHEMA)  # idempotent schema migration, not a data rewrite
-                    synced = sync_pending(store, turso)
-                logger.info("run complete: %d new/changed, %d synced to Turso", changed, synced)
+                    turso.execute(TURSO_SCHEMA)
+
+                    dynamic_term_pairs = load_search_terms(vacuum_config, turso)
+                    vacuum_config["search_terms"] = {
+                        "primary": [term for term, _category in dynamic_term_pairs],
+                        "secondary": [],
+                    }
+
+                    all_price_drop_events = []
+                    for name in enabled_sources:
+                        module = SOURCE_MODULES.get(name)
+                        if module is None:
+                            logger.warning("Unknown source configured: %s, skipping", name)
+                            continue
+                        if not should_run_source(
+                            store.connection,
+                            name,
+                            min_interval_hours,
+                            force=force_source is not None,
+                        ):
+                            continue
+                        run_source_kwargs = {}
+                        if name in SOURCE_TIMEOUT_OVERRIDES:
+                            run_source_kwargs["fetch_timeout_seconds"] = SOURCE_TIMEOUT_OVERRIDES[
+                                name
+                            ]
+                        raw_count, changed, price_drop_events = run_source(
+                            store, name, module.fetch, vacuum_config, **run_source_kwargs
+                        )
+                        mark_source_run(store.connection, name)
+                        total_raw += raw_count
+                        total_changed += changed
+                        all_price_drop_events.extend(price_drop_events)
+
+                    for _ in range(100):  # 100 * 200 = 20.000 rækker/kørsel-loft
+                        batch_synced = sync_pending(store, turso)
+                        synced += batch_synced
+                        if batch_synced == 0:
+                            break
+
+                    sync_price_history_to_turso(turso, all_price_drop_events)
+                    if all_price_drop_events:
+                        logger.info(
+                            "price_history: %d prisfald registreret", len(all_price_drop_events)
+                        )
+
+                logger.info(
+                    "run complete: %d raw across %d source(s), %d new/changed, %d synced to Turso",
+                    total_raw,
+                    len(enabled_sources),
+                    total_changed,
+                    synced,
+                )
             else:
-                # Graceful fallback: no Turso credentials configured -> local-only mode.
-                # The demo still works end-to-end without any cloud account.
+                # Graceful fallback: ingen Turso-konto -> lokal-only mode.
+                for name in enabled_sources:
+                    module = SOURCE_MODULES.get(name)
+                    if module is None:
+                        logger.warning("Unknown source configured: %s, skipping", name)
+                        continue
+                    if not should_run_source(
+                        store.connection,
+                        name,
+                        min_interval_hours,
+                        force=force_source is not None,
+                    ):
+                        continue
+                    run_source_kwargs = {}
+                    if name in SOURCE_TIMEOUT_OVERRIDES:
+                        run_source_kwargs["fetch_timeout_seconds"] = SOURCE_TIMEOUT_OVERRIDES[name]
+                    raw_count, changed, _price_drop_events = run_source(
+                        store, name, module.fetch, vacuum_config, **run_source_kwargs
+                    )
+                    mark_source_run(store.connection, name)
+                    total_raw += raw_count
+                    total_changed += changed
+
                 logger.warning(
                     "TURSO_DATABASE_URL/TURSO_AUTH_TOKEN not set - skipping Turso sync "
-                    "(local-only demo mode). %d new/changed item(s) queued locally.",
-                    changed,
+                    "(local-only mode). %d new/changed item(s) queued locally.",
+                    total_changed,
                 )
     except Exception:
         logger.exception("scrape run failed")
@@ -51,5 +199,16 @@ def run() -> int:
     return 0
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--source",
+        choices=sorted(SOURCE_MODULES),
+        help="Run only this one source, ignoring its sources_min_interval_hours cadence limit.",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    sys.exit(run())
+    args = _parse_args()
+    sys.exit(run(force_source=args.source))
