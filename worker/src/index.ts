@@ -119,6 +119,7 @@ app.get("/api/listings", requireAuth, async (c) => {
   const source = c.req.query("source");
   const dustClass = c.req.query("dust_class");
   const includeDismissed = c.req.query("include_dismissed") === "1";
+  const validatedOnly = c.req.query("validated") === "1";
 
   await ensureColumn(db, "listings", "dismissed", "INTEGER NOT NULL DEFAULT 0");
   await ensureColumn(db, "listings", "dismissed_reason", "TEXT");
@@ -145,6 +146,13 @@ app.get("/api/listings", requireAuth, async (c) => {
   // frontend/index.html, som sætter include_dismissed=1 for at se dem igen.
   if (!includeDismissed) {
     conditions.push("dismissed = 0");
+  }
+  // "Valideret" (Opus 5-anbefaling, 2026-09-20): en UAFHÆNGIG akse fra
+  // vurdering ("er klassen bekræftet?" vs. "er det et godt køb?") - se
+  // `valideret`-feltet i SELECT-listen nedenfor for den fulde begrundelse
+  // for hvorfor definitionen er identisk her og der (skal aldrig afvige).
+  if (validatedOnly) {
+    conditions.push("model_key IS NOT NULL AND klasse_kilde = 'modelnavn' AND dust_class = 'H'");
   }
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
@@ -175,9 +183,21 @@ app.get("/api/listings", requireAuth, async (c) => {
   // Spec: "marker annoncer der har ligget over 30 dage som forhandlings-
   // mulighed" -- ren query-tids-udledning af first_seen, ingen separat kolonne
   // (undgår at et beregnet felt kan blive stale mellem scraper-kørsler).
+  //
+  // "Valideret" (Opus 5-anbefaling, 2026-09-20, efter en kritisk gennemgang
+  // af live søgeresultater mod opdraget): betyder "støvklassen er BEKRÆFTET
+  // via et faktisk modelnavn-match", IKKE "værd at købe" -- de to akser
+  // holdes bevidst uafhængige (en valideret maskine kan sagtens være
+  // 'afvist' på pris, se WHERE-klausulens ?validated=1-håndtering ovenfor).
+  // Beregnet her, IKKE i Python/classify.py, af samme grund som
+  // forhandlingsmulighed: en boolesk kolonne skrevet af scraperen ville
+  // kun opdateres når rækken genbesøges, og ville stå stale for alle
+  // allerede-scrapede rækker hver gang definitionen justeres. dust_class
+  // er bevidst kun 'H' (ikke også 'M') -- se README's M-klasse-afsnit.
   const result = await db.execute({
     sql: `SELECT listings.*,
       (julianday('now') - julianday(first_seen)) >= 30 AS forhandlingsmulighed,
+      (model_key IS NOT NULL AND klasse_kilde = 'modelnavn' AND dust_class = 'H') AS valideret,
       (SELECT pct_change FROM price_history ph
         WHERE ph.item_key = listings.item_key ORDER BY ph.id DESC LIMIT 1) AS latest_price_drop_pct,
       (SELECT observed_at FROM price_history ph

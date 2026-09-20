@@ -58,6 +58,16 @@ def _p(pattern: str) -> re.Pattern:
     return re.compile(pattern, re.I)
 
 
+# Stavefejl-tolerant Attix-præfiks (Opus 5-fund, 2026-09-20, live-data
+# 2026-09-19/20): "Atto"/"Attixx"/"Attik" set i rigtige DBA-titler
+# ("Nilfisk Atto 33 2H PC", "Nilfisk Alto attik 9 ..."). Brugt i BÅDE
+# whitelist-mønstrene nedenfor OG HARD_REJECT_PATTERNS' "Attix uden
+# klassebogstav"-mønster -- de to skal blive ved med at bruge samme
+# fragment, ellers falder en stavefejlet L-klasse-annonce (fx "Atto 30 21")
+# igennem begge net.
+_ATTIX = r"att(?:ix|ixx|o|ik)"
+
+
 # ---------------------------------------------------------------------------
 # WHITELIST -- H-klasse (primær) og M-klasse (kun de eksplicit spec-godkendte
 # modeller i sektion 2.7, "kun hvis asbest kan udelukkes").
@@ -71,8 +81,19 @@ MODEL_WHITELIST: list[ModelEntry] = [
         "ASA 30 H PC",
         "H",
         30,
-        2400,
-        2400,
+        2349,
+        2349,
+        note="Nypris korrigeret til 2.349 kr. efter brugerens egen research "
+        "(2026-09-20) -- specens egen tabel havde ikke et præcist tal for "
+        "denne model. Brugeren fremhæver den som 'billigst forsvarligt' "
+        "H-klasse-fund. NB: 'PC'-suffikset er her 'PressClean' -- MANUEL "
+        "rensning ifølge brugeren, ikke automatisk. Dette står i modsætning "
+        "til spec-scoringens generelle antagelse om at 'PC' indikerer "
+        "automatisk/semiautomatisk rens (se normalize.py's "
+        "FILTER_CLEANING_PATTERN) -- uafklaret om dette er en generel "
+        "unøjagtighed i specen eller specifikt for Metabo. Ikke rettet i "
+        "selve scorings-logikken endnu, da 'PC' bruges bredt på tværs af "
+        "andre (Nilfisk-)modeller hvor det kan betyde noget andet.",
     ),
     ModelEntry(
         "nilfisk_aero_26_2h_pc",
@@ -133,7 +154,7 @@ MODEL_WHITELIST: list[ModelEntry] = [
     # opsamles separat af normalize.py's tekst-baserede feature-scan.
     ModelEntry(
         "nilfisk_attix_33_2h",
-        _p(r"\battix[\s-]*33[\s-]*2h\b"),
+        _p(rf"\b{_ATTIX}[\s-]*33[\s-]*2h\b"),
         "Nilfisk",
         "Attix 33-2H (IC/PC)",
         "H",
@@ -143,7 +164,7 @@ MODEL_WHITELIST: list[ModelEntry] = [
     ),
     ModelEntry(
         "nilfisk_attix_30_0h",
-        _p(r"\battix[\s-]*30[\s-]*0h\b"),
+        _p(rf"\b{_ATTIX}[\s-]*30[\s-]*0h\b"),
         "Nilfisk",
         "Attix 30-0H PC",
         "H",
@@ -153,7 +174,7 @@ MODEL_WHITELIST: list[ModelEntry] = [
     ),
     ModelEntry(
         "nilfisk_attix_30_2h",
-        _p(r"\battix[\s-]*30[\s-]*2h\b"),
+        _p(rf"\b{_ATTIX}[\s-]*30[\s-]*2h\b"),
         "Nilfisk",
         "Attix 30-2H PC",
         "H",
@@ -264,7 +285,7 @@ MODEL_WHITELIST: list[ModelEntry] = [
     ),
     ModelEntry(
         "nilfisk_attix_50_0h",
-        _p(r"\battix[\s-]*50[\s-]*0h\b"),
+        _p(rf"\b{_ATTIX}[\s-]*50[\s-]*0h\b"),
         "Nilfisk",
         "Attix 50-0H PC",
         "H",
@@ -274,7 +295,7 @@ MODEL_WHITELIST: list[ModelEntry] = [
     ),
     ModelEntry(
         "nilfisk_attix_751_0h",
-        _p(r"\battix[\s-]*751[\s-]*0h\b"),
+        _p(rf"\b{_ATTIX}[\s-]*751[\s-]*0h\b"),
         "Nilfisk",
         "Attix 751-0H (Asbest)",
         "H",
@@ -283,7 +304,7 @@ MODEL_WHITELIST: list[ModelEntry] = [
     ),
     ModelEntry(
         "nilfisk_attix_965",
-        _p(r"\battix[\s-]*965[\s-]*0?[\s-]*[hm]\b"),
+        _p(rf"\b{_ATTIX}[\s-]*965[\s-]*0?[\s-]*[hm]\b"),
         "Nilfisk",
         "Attix 965-0H/M SD XC",
         "H",
@@ -310,6 +331,22 @@ MODEL_WHITELIST: list[ModelEntry] = [
         note="Ikke i den oprindelige mærke-liste, men i spec-referencetabel 2.3 -- "
         "tilføjet for fuldstændighed.",
     ),
+    # KRITISK FUND (Opus 5-gennemgang, 2026-09-20): kun "2800 H" var dækket,
+    # men live-data viste ægte fund som "RONDA 80H 25L" og "RONDA 1800H
+    # Power" -- Ronda bruger konsekvent H-suffiks for støvklasse H på tværs
+    # af hele modelserien. Denne GENERISKE fallback står bevidst EFTER
+    # ronda_2800h ovenfor (mere specifik model_key/pris bevares for netop
+    # den model), og fanger resten. container_l/pris er ukendt pr. model,
+    # så "verificér typeskilt" jf. spec-sektion 2.6.
+    ModelEntry(
+        "ronda_h_serie",
+        _p(r"\bronda\b.{0,15}?\b\d{2,4}\s*-?\s*h\b"),
+        "Ronda",
+        "H-serie (verificér typeskilt)",
+        "H",
+        None,
+        note="Generisk Ronda-H-mønster, se kommentar ovenfor -- ikke fra specen selv.",
+    ),
     # --- H-klasse, batteri (spec-tabel 2.4) -- sekundært fund jf. spec ---
     ModelEntry(
         "starmix_isc_1625_mpb_h",
@@ -318,9 +355,14 @@ MODEL_WHITELIST: list[ModelEntry] = [
         "ISC 1625 MPB H",
         "H",
         25,
-        8400,
-        10500,
+        5495,
+        5995,
         battery=True,
+        note="Nypris korrigeret til 5.495-5.995 kr. efter brugerens egen "
+        "research (2026-09-20) -- specens egen tabel 2.4 angav 8.400-10.500 "
+        "kr., som brugeren udtrykkeligt har fundet upræcist. Brugeren "
+        "bekræfter desuden: automatisk filterrensning, HEPA 14, og "
+        "plastsæk der opfylder Arbejdstilsynets asbestkrav.",
     ),
     ModelEntry(
         "starmix_vaccufix_h",
@@ -361,7 +403,7 @@ MODEL_WHITELIST: list[ModelEntry] = [
     ),
     ModelEntry(
         "nilfisk_attix_995",
-        _p(r"\battix[\s-]*995[\s-]*0?[\s-]*[hm]\b"),
+        _p(rf"\b{_ATTIX}[\s-]*995[\s-]*0?[\s-]*[hm]\b"),
         "Nilfisk",
         "Attix 995-0H/M SD XC",
         "H",
@@ -370,7 +412,7 @@ MODEL_WHITELIST: list[ModelEntry] = [
     ),
     ModelEntry(
         "nilfisk_attix_44_2h",
-        _p(r"\battix[\s-]*44[\s-]*2h\b"),
+        _p(rf"\b{_ATTIX}[\s-]*44[\s-]*2h\b"),
         "Nilfisk",
         "Attix 44-2H IC",
         "H",
@@ -464,7 +506,7 @@ MODEL_WHITELIST: list[ModelEntry] = [
     ),
     ModelEntry(
         "nilfisk_attix_550_0h",
-        _p(r"\battix[\s-]*550[\s-]*0h\b"),
+        _p(rf"\b{_ATTIX}[\s-]*550[\s-]*0h\b"),
         "Nilfisk",
         "Attix 550-0H",
         "H",
@@ -480,21 +522,21 @@ MODEL_WHITELIST: list[ModelEntry] = [
     ModelEntry("makita_vc4210m", _p(r"\bvc[\s-]*4210[\s-]*m\b"), "Makita", "VC4210M", "M"),
     ModelEntry(
         "nilfisk_attix_30_2m_pc",
-        _p(r"\battix[\s-]*30[\s-]*2m[\s-]*pc\b"),
+        _p(rf"\b{_ATTIX}[\s-]*30[\s-]*2m[\s-]*pc\b"),
         "Nilfisk",
         "Attix 30-2M PC",
         "M",
     ),
     ModelEntry(
         "nilfisk_attix_33_2m_pc",
-        _p(r"\battix[\s-]*33[\s-]*2m[\s-]*pc\b"),
+        _p(rf"\b{_ATTIX}[\s-]*33[\s-]*2m[\s-]*pc\b"),
         "Nilfisk",
         "Attix 33-2M PC",
         "M",
     ),
     ModelEntry(
         "nilfisk_attix_50_2m_pc",
-        _p(r"\battix[\s-]*50[\s-]*2m[\s-]*pc\b"),
+        _p(rf"\b{_ATTIX}[\s-]*50[\s-]*2m[\s-]*pc\b"),
         "Nilfisk",
         "Attix 50-2M PC",
         "M",
@@ -569,8 +611,15 @@ MODEL_WHITELIST: list[ModelEntry] = [
 # ikke negative lookaheads i hvert blacklist-mønster.
 # ---------------------------------------------------------------------------
 HARD_REJECT_PATTERNS: list[tuple[str, re.Pattern]] = [
-    ("karcher_nt35_1_tact_te_uden_h", _p(r"\bnt[\s-]*35\s*/?\s*1[\s-]*tact[\s-]*te\b")),
-    ("karcher_nt30_1_tact_uden_h", _p(r"\bnt[\s-]*30\s*/?\s*1[\s-]*tact\b")),
+    # KRITISK FUND (Opus 5-gennemgang af live data, 2026-09-20): de to
+    # oprindelige mønstre herunder dækkede kun "NT 35/1"/"NT 30/1" og
+    # missede reelle DBA-fund som "NT 45/1 Tact Te" og "NT 30/1 Wet & Dry"
+    # (specen kalder netop NT-uden-H "den mest udbudte maskine overhovedet").
+    # Generaliseret til ALLE "NT <tal>/<tal>"-modeller uden et H/M inden for
+    # rimelig afstand. Whitelisten tjekkes altid FØRST (se normalize.py), så
+    # NT 35/1 Tact Te H, NT 30/1 Ap Te H, NT 75/1 Tact Me H osv. rammes
+    # aldrig af dette -- testet eksplicit mod alle whitelistede NT-modeller.
+    ("karcher_nt_uden_klassebogstav", _p(r"\bnt[\s-]*\d{2,3}\s*/\s*\d\b(?!.{0,25}\b[hm]\b)")),
     ("karcher_t_serie", _p(r"\bk[äa]rcher\b.{0,15}\bt[\s-]*serien?\b")),
     # KRITISK FUND (live-test 2026-09-19): tidligere version af dette mønster
     # var `\bwd[\s-]*\d` UDEN mærke-kontekst, og ramte fejlagtigt en Nilfisk-
@@ -580,11 +629,40 @@ HARD_REJECT_PATTERNS: list[tuple[str, re.Pattern]] = [
     # eksplicit "kärcher"/"karcher" i nærheden, samme princip som
     # karcher_t_serie ovenfor.
     ("karcher_wd_serie", _p(r"\bk[äa]rcher\b.{0,20}\bwd[\s-]*\d")),
-    ("nilfisk_attix_30_01_11_21", _p(r"\battix[\s-]*30[\s-]*(?:0?1|11|21)\b")),
+    # KRITISK FUND (Opus 5-gennemgang, 2026-09-20): 44% af al støj i en
+    # live-stikprøve var Nilfisk Attix/Alto-modeller UDEN klassebogstav
+    # (fx "Attix 50-21", "ATTIX 751-11", "Attix 9 961-01") -- Attix-serien
+    # nummereres <størrelse>-<variant>, hvor variantens sidste tegn ER
+    # klassen (-0H/-2H = H, -2M = M, mens -01/-11/-21/-51 er L/ingen klasse).
+    # Specen blacklister eksplicit "Attix 30-01/-11/-21", men det oprindelige
+    # mønster dækkede kun 30-serien. Generaliseret til HELE Attix-familien,
+    # inkl. stavefejl-varianter (se _ATTIX). Whitelisten tjekkes altid FØRST,
+    # så alle H/M-klassificerede Attix-modeller er beskyttet -- testet
+    # eksplicit mod samtlige whitelistede Attix-mønstre ovenfor.
+    (
+        "nilfisk_attix_uden_klassebogstav",
+        _p(rf"\b{_ATTIX}\b(?![\s-]*\d{{1,3}}[\s-]*-?\s*\d?\s*[hm]\b)"),
+    ),
+    # "Nilfisk Atrixx Maxxi" (L-klasse forbruger-serie, adskilt fra Attix) og
+    # bar "Attix/attik 7/8/9" uden noget modelnummer overhovedet (fx "Nilfisk
+    # Alto attik 9 våd- og tørstøvsuger") -- ingenting at verificere.
+    ("nilfisk_maxxi_wd", _p(r"\bmaxxi\b")),
+    ("nilfisk_attix_bar_serie_7_9", _p(rf"\b{_ATTIX}\s*[789]\b")),
+    # Kärcher-produktlinjer der IKKE er våd-/tørsugere (højtryksrensere,
+    # gulvvaskere, tæpperensere, vinduespudsere, kost/fejemaskiner). 0 hits i
+    # de faktiske data pr. 2026-09-20, men billig forsikring før
+    # kleinanzeigen.de/blocket.se's bredere Kärcher-sortiment kommer i drift.
+    (
+        "karcher_ikke_stoevsuger",
+        _p(
+            r"\bk[äa]rcher\b.{0,25}\b(?:hd|hds|k\s?[2-7]|puzzi|br\s?\d|bd\s?\d|"
+            r"sc\s?\d|wv\s?\d|fc\s?\d|km\s?\d)\b"
+        ),
+    ),
     ("nilfisk_sq650_3m", _p(r"\bsq[\s-]*650[\s-]*3m\b")),
     ("nilfisk_sq690_3m", _p(r"\bsq[\s-]*690[\s-]*3m\b")),
     ("nilfisk_sq691_9m", _p(r"\bsq[\s-]*691[\s-]*9m\b")),
-    ("nilfisk_attix_791_2m", _p(r"\battix[\s-]*791[\s-]*2m\b")),
+    ("nilfisk_attix_791_2m", _p(rf"\b{_ATTIX}[\s-]*791[\s-]*2m\b")),
     ("nilfisk_vp300", _p(r"\bvp[\s-]*300\b")),
     ("nilfisk_gd930", _p(r"\bgd[\s-]*930\b")),
     ("nilfisk_multi_ii", _p(r"\bmulti[\s-]*ii\b")),

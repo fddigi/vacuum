@@ -169,8 +169,6 @@ def run_source(
         for raw in raw_listings:
             title = raw.get("title", "")
             description = raw.get("description", "")
-            if normalize.is_accessory_or_rental(f"{title} {description}"):
-                continue
 
             listing = normalize.normalize_listing(
                 source=source_name,
@@ -184,7 +182,29 @@ def run_source(
                 origin_country_code=raw.get("origin_country_code"),
                 import_costs=config.get("import_costs"),
             )
-            verdict = classify.classify(listing, config)
+
+            # KRITISK RETTELSE (Opus 5-gennemgang, 2026-09-20): dette var
+            # tidligere et `continue` FØR normalize_listing() overhovedet
+            # kørte -- rækken blev aldrig skrevet, så en allerede-gemt
+            # rækkes GAMLE vurdering (fra dengang tilbehørs-mønsteret endnu
+            # ikke fangede den) forblev synlig for evigt, uanset senere
+            # forbedringer af filtrene. Nu normaliseres OG skrives rækken
+            # altid, blot med en direkte "afvis"-dom for tilbehør/udlejning
+            # -- så enhver fremtidig regel-ændring automatisk retter
+            # allerede-scrapede rækker ved næste besøg, ikke kun nye fund.
+            if normalize.is_accessory_or_rental(
+                f"{title} {description}"
+            ) or normalize.is_accessory_title(title):
+                verdict = {
+                    "score": 0,
+                    "score_reasons": [],
+                    "vurdering": "afvis",
+                    "mangler_info": ["tilbehør/reservedele/udlejning, ikke en hel maskine"],
+                    "classification_method": "afvist: tilbehør/udlejning (tekstfilter)",
+                    "spoergsmaal_til_saelger": [],
+                }
+            else:
+                verdict = classify.classify(listing, config)
 
             # Auktionskilder (klaravik/auktionshuset/retrade) leverer AKTUELT
             # BUD, ikke en fast pris -- buddet kan stige frem til auktionens

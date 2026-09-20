@@ -53,11 +53,29 @@ SOURCE_MODULES = {
     "retrade": retrade,
 }
 
-# Kleinanzeigen/Blocket har egen (langsommere) side-for-side-throttling internt
-# (se deres fetch()) -- samme timeout-udvidelse som PASPEAKERS fandt nødvendigt
-# for Kleinanzeigen ved et voksende søgefelt.
+# KRITISK FUND (live-test 2026-09-20): efter search_terms-reseed-fixet
+# (se search_terms.py) begyndte kilder reelt at søge alle ~53 termer fra
+# config.yaml i stedet for kun 3 -- en fuld dba.dk-kørsel tog da over 300s
+# (standard-watchdog-budgettet), hvilket fik watchdog'en til at give op
+# midt i kørslen. Værre end blot en langsom kørsel: se run_with_timeout()'s
+# egen docstring -- den underliggende fetch()-tråd bliver IKKE dræbt, den
+# kører videre i baggrunden og når muligvis at blive færdig, men dens
+# resultat bliver ALDRIG synkroniseret, fordi main() allerede har givet op
+# og logget "0 raw" på det tidspunkt. Konkret observeret: en hel
+# dba.dk-kørsel med 53 termer fuldførte reelt i baggrunden, men 0 rækker
+# blev synkroniseret til Turso. Alle Playwright-baserede kilder (som alle
+# har samme min_delay_s/max_delay_s-throttling pr. side/term) udvidet til
+# 900s -- samme værdi PASPEAKERS/kleinanzeigen allerede brugte for et
+# tilsvarende voksende søgefelt. Vinted (API-baseret, ingen sidenavigation
+# pr. term) beholder standard-budgettet.
 SOURCE_TIMEOUT_OVERRIDES = {
+    "dba": 900,
+    "guloggratis": 900,
     "kleinanzeigen": 900,
+    "blocket": 900,
+    "klaravik": 900,
+    "auktionshuset": 900,
+    "retrade": 900,
 }
 
 # To uafhængige triggere (launchd-schedule + evt. fremtidig "Kør nu"-knap) kan

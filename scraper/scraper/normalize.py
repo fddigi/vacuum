@@ -59,6 +59,15 @@ ACCESSORY_OR_RENTAL_PATTERN = re.compile(
 BATTERY_PATTERN = re.compile(r"\b(batteri|akku|cordless|18\s*v\b|36\s*v\b)\b", re.I)
 CORDED_PATTERN = re.compile(r"\b(230\s*v|ledning|kabel|corded|netdrevet)\b", re.I)
 
+# R8 (Opus 5-gennemgang, 2026-09-20): to Nilfisk AERO 26-2H PC-forhandler-
+# annoncer ("NU KUN 2.995 KR.", fabriksnye/ubrugte) blev fejlagtigt afvist,
+# fordi classify.py lagde filterestimatet (700-900 kr., spec: "på ENHVER
+# BRUGT maskine") oveni selv for åbenlyst ubrugte/nye maskiner.
+UNUSED_MACHINE_PATTERN = re.compile(
+    r"\b(fabriksny\w*|helt\s+ny\w*|ubrugt\w*|ny\s+i\s+kasse|ungebraucht|nagelneu|oanv[äa]nd\w*)\b",
+    re.I,
+)
+
 # Automatisk/semiautomatisk filterrensning -- spec's egen keyword-liste
 # ("Tact, AFC, XC, PC, InfiniClean, AirBoost") udvidet med de øvrige
 # producent-navne set i modelnavnene (MPB, Safe EW, iPulse).
@@ -105,6 +114,57 @@ COMPLETENESS_NEGATIVE_PATTERN = re.compile(
 
 def is_accessory_or_rental(text: str) -> bool:
     return bool(ACCESSORY_OR_RENTAL_PATTERN.search(text or ""))
+
+
+# R4 (Opus 5-gennemgang, 2026-09-20): ACCESSORY_OR_RENTAL_PATTERN ovenfor
+# kører bevidst SNÆVERT på titel+beskrivelse tilsammen, fordi en bredere
+# pose-/børste-/dyse-scanning der ALTID afviser ville dræbe ægte
+# maskinannoncer der nævner "+1 ubrugte sikkerhedsfilterposer medfølger"
+# (et scoring-plus, se classify.py) i beskrivelsen. Løsningen er et
+# SEPARAT, kun-titel-scoped mønster: hvis TITLENS hovedvare er tilbehør
+# (ikke bare nævnt i teksten et sted), OG titlen ikke i sig selv matcher en
+# whitelistet model, er det med stor sikkerhed en tilbehørs-/reservedele-
+# annonce. Fundet i live data: "Nilfisk poser", "Nilfisk børste , Nilfisk",
+# "Nilfisk Filterpose til Attix 751/761/961", "Nilfisk Alto ATTIX 7 Liquid
+# slangesæt".
+ACCESSORY_TITLE_PATTERN = re.compile(
+    r"\b(pose[rn]?|filterpose[rn]?|st[øo]vsugerpose[rn]?|b[øo]rste[rn]?|"
+    r"mundstykke[rn]?|slanges[æa]t|d[yø]se[rn]?|filterelement(?:er)?|"
+    r"kulfilter|hjuls[æa]t|adapter|bags?|nozzle|brush)\b",
+    re.I,
+)
+
+
+def is_accessory_title(title: str) -> bool:
+    """True hvis titlens hovedvare er tilbehør (pose/børste/dyse/slangesæt
+    osv.) OG titlen ikke selv matcher en whitelistet hel-maskine-model.
+    Kører KUN på titlen (se modulets kommentar ovenfor for hvorfor)."""
+    if not ACCESSORY_TITLE_PATTERN.search(title or ""):
+        return False
+    return classify_model(title or "").get("model_key") is None
+
+
+# R5 (Opus 5-gennemgang, 2026-09-20): mentions_known_brand() alene gav en
+# for bred fribillet -- "Bosch støvsuger" og "Nilfisk støvsuger" (INTET
+# modelnummer, intet at bede sælger bekræfte) endte forkert i "se nærmere"
+# i stedet for at blive afvist som støj. Et kendt mærke bør kun beskytte
+# mod auto-afvisning når der OGSÅ er et modelnummer-agtigt tal at
+# verificere -- ikke bare en pris/watt/volt/liter-specifikation.
+_SPEC_UNIT_PATTERN = re.compile(
+    r"\b\d{1,5}\s*(?:w(?:att)?|v(?:olt)?|l(?:iter)?|kr|stk|cm|mm|mtr|m|%|"
+    r"[åa]r|kg|bar|db|hk|rpm)\b",
+    re.I,
+)
+_MODEL_TOKEN_PATTERN = re.compile(r"\d{2,4}")
+
+
+def has_model_token(text: str) -> bool:
+    """True hvis teksten indeholder et tal der IKKE blot er en kendt
+    specifikation (watt/volt/liter/pris/...) -- dvs. et tal der plausibelt
+    er en del af et modelnavn. Uden et sådant er der intet konkret at spørge
+    sælger om ud over de faste standardspørgsmål."""
+    stripped = _SPEC_UNIT_PATTERN.sub(" ", text or "")
+    return bool(_MODEL_TOKEN_PATTERN.search(stripped))
 
 
 def classify_model(text: str) -> dict:
@@ -203,13 +263,14 @@ def extract_soft_signals(text: str) -> dict:
         "stikdaase": True if STIKDAASE_PATTERN.search(text) else "ukendt",
         "antistatisk_slange": bool(ANTISTATIC_HOSE_PATTERN.search(text)),
         "nyt_filter": bool(NEW_FILTER_PATTERN.search(text)),
+        "unused_machine": bool(UNUSED_MACHINE_PATTERN.search(text)),
         "ubrugte_poser": bool(UNUSED_BAGS_PATTERN.search(text)),
         "condition_red_flag": bool(CONDITION_RED_FLAG_PATTERN.search(text)),
         "asbest_kort_i_brug": bool(ASBESTOS_USED_PATTERN.search(text)),
         "asbest_godkendt_i_tekst": bool(ASBESTOS_APPROVED_TEXT_PATTERN.search(text)),
         "completeness_negative": bool(COMPLETENESS_NEGATIVE_PATTERN.search(text)),
         "weak_evidence_only": bool(WEAK_EVIDENCE_PATTERN.search(text)),
-        "known_brand_mentioned": mentions_known_brand(text),
+        "known_brand_mentioned": mentions_known_brand(text) and has_model_token(text),
         "corded_mentioned": bool(CORDED_PATTERN.search(text)),
         "battery_mentioned": bool(BATTERY_PATTERN.search(text)),
         "medfoelger": _extract_accessories(text),

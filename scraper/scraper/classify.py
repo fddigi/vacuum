@@ -117,9 +117,14 @@ def classify(listing: dict, config: dict) -> dict:
     klasse_kilde = listing.get("klasse_kilde")
 
     price_dkk = listing.get("landed_price_dkk")
+    # R8 (Opus 5-gennemgang, 2026-09-20): filterestimatet lægges KUN oveni
+    # for en reelt BRUGT maskine (spec: "på enhver BRUGT maskine") -- en
+    # eksplicit "fabriksny"/"ubrugt"-annonce (typisk forhandlersalg) skal
+    # ikke straffes med et estimat der ikke gælder for den.
+    skip_filter_estimate = listing.get("nyt_filter") or listing.get("unused_machine")
     effective_price = None
     if price_dkk is not None:
-        effective_price = price_dkk if listing.get("nyt_filter") else price_dkk + filter_estimate
+        effective_price = price_dkk if skip_filter_estimate else price_dkk + filter_estimate
 
     score, reasons = compute_score(listing)
 
@@ -173,17 +178,34 @@ def classify(listing: dict, config: dict) -> dict:
             method="afvist: sandsynligt ukomplet maskine",
         )
 
-    # Nypris-loft (70%) -- kun håndhævet når vi rent faktisk kender en nypris.
+    # Nypris-loft (70%) -- kun håndhævet når vi rent faktisk kender en nypris,
+    # og KUN for en reelt BRUGT maskine. To rettelser (2026-09-20):
+    # (1) Tjekkes mod selve UDBUDSPRISEN (price_dkk), IKKE effective_price
+    #     (som inkluderer filterestimatet) -- ellers kan en billig,
+    #     lav-nypris-model (fx Metabo ASA 30 H PC, nypris 2.349 kr.) aldrig
+    #     bestå selv til en fair brugt-pris, fordi det faste
+    #     700-900 kr.-filterestimat alene er en stor andel af maskinens
+    #     egen værdi. Reglen er en sanity-check på selve prisen sælger
+    #     beder om, adskilt fra prisloft-kategoriens køb/god-handel-grænser
+    #     (som filterestimatet stadig indgår i, se effective_price ovenfor).
+    # (2) Springes helt over når "unused_machine" er sandt -- reglens
+    #     forudsætning er "en BRUGT maskine bør koste meningsfuldt mindre
+    #     end en ny" (afskrivning for slid), hvilket er en kategorifejl at
+    #     anvende på en bekræftet fabriksny/ubrugt maskine. Fundet konkret:
+    #     "Nilfisk AERO 26-2H PC NU KUN 2.995 KR, fabriksny" blev afvist på
+    #     70%-reglen alene, selvom prisloft-kategoriens egne grænser (som
+    #     rent faktisk er designet til at vurdere om PRISEN er god) ikke
+    #     har indvendinger.
     price_new_low = listing.get("price_new_dkk_low")
-    if effective_price is not None and price_new_low:
-        if effective_price > 0.7 * price_new_low:
+    if price_dkk is not None and price_new_low and not listing.get("unused_machine"):
+        if price_dkk > 0.7 * price_new_low:
             return _result(
                 "afvis",
                 score,
                 reasons,
                 [
-                    f"pris ({effective_price:.0f} kr. inkl. filterestimat) overstiger 70% af "
-                    f"kendt nypris ({price_new_low:.0f} kr.)"
+                    f"udbudspris ({price_dkk:.0f} kr.) overstiger 70% af kendt nypris "
+                    f"({price_new_low:.0f} kr.)"
                 ],
                 method="afvist: over 70%-af-nypris-loftet",
             )

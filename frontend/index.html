@@ -60,10 +60,17 @@
       <select id="filter-source">
         <option value="">Alle kilder</option>
       </select>
+      <select id="filter-klasse">
+        <option value="H" selected>Kun H-klasse</option>
+        <option value="">Alle klasser (inkl. M)</option>
+      </select>
       <select id="sort">
         <option value="price_asc">Sortér: billigst</option>
         <option value="newest">Sortér: nyeste</option>
       </select>
+      <label class="checkbox-label" title="Støvklasse bekræftet via et faktisk modelnavn-match, ikke kun mærkeomtale. Uafhængig af vurdering (køb nu/se nærmere/afvis) - en valideret maskine kan sagtens være afvist på pris.">
+        <input type="checkbox" id="show-validated-only" /> Kun validerede
+      </label>
       <label class="checkbox-label"><input type="checkbox" id="show-dismissed" /> Vis afviste</label>
       <button id="refresh">Opdatér</button>
     </div>
@@ -141,11 +148,15 @@
       const dismissedBadge = row.dismissed
         ? `<span class="dismissed-badge">(afvist${row.dismissed_reason === "manual" ? " manuelt" : ""})</span>`
         : "";
+      const validatedBadge = row.valideret
+        ? `<span class="badge koeb" title="Støvklasse bekræftet via modelnavn-match">✓ valideret</span>`
+        : "";
 
       card.innerHTML = `
         <div class="card-top">
           <div>
             <span class="badge ${badgeClass(row.vurdering)}">${row.vurdering ?? "ukendt"}</span>
+            ${validatedBadge}
             ${dismissedBadge}
             <div class="title"><a href="${row.url}" target="_blank" rel="noopener">${row.title ?? "(uden titel)"}</a></div>
             <div class="meta">${row.source ?? ""}${row.location ? " · " + row.location : ""} · score ${row.score ?? 0}${ageFlag}</div>
@@ -191,12 +202,16 @@
       const params = new URLSearchParams();
       const vurdering = document.getElementById("filter-vurdering").value;
       const source = document.getElementById("filter-source").value;
+      const klasse = document.getElementById("filter-klasse").value;
       const sort = document.getElementById("sort").value;
       const showDismissed = document.getElementById("show-dismissed").checked;
+      const validatedOnly = document.getElementById("show-validated-only").checked;
       if (vurdering) params.set("vurdering", vurdering);
       if (source) params.set("source", source);
+      if (klasse) params.set("dust_class", klasse);
       params.set("sort", sort);
       if (showDismissed) params.set("include_dismissed", "1");
+      if (validatedOnly) params.set("validated", "1");
 
       const res = await fetch(`${API_BASE}/api/listings?${params.toString()}`, { headers: authHeaders() });
       if (!res.ok) {
@@ -226,8 +241,10 @@
 
     document.getElementById("filter-vurdering").addEventListener("change", loadListings);
     document.getElementById("filter-source").addEventListener("change", loadListings);
+    document.getElementById("filter-klasse").addEventListener("change", loadListings);
     document.getElementById("sort").addEventListener("change", loadListings);
     document.getElementById("show-dismissed").addEventListener("change", loadListings);
+    document.getElementById("show-validated-only").addEventListener("change", loadListings);
     document.getElementById("refresh").addEventListener("click", loadListings);
 
     document.getElementById("logout").addEventListener("click", async () => {

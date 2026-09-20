@@ -95,15 +95,19 @@ def test_weak_evidence_only_is_afvist():
 
 
 def test_weak_evidence_with_known_brand_is_se_naermere_not_afvis():
-    """Regression -- fundet ved live test 2026-09-19 mod dba.dk: rigtige
-    Nilfisk Attix-annoncer med et modelnummer models.py IKKE dækker (fx
-    "Attix 751-11", "Attix 965-21 DC XC") blev fejlagtigt hård-afvist bare
-    fordi ordet 'industristøvsuger' indgår i teksten. Et kendt mærke er en
-    reel grund til at bede om et typeskilt, ikke til automatisk at afvise."""
+    """Regression -- fundet ved live test 2026-09-19 mod dba.dk (og siden
+    strammet af en Opus 5-gennemgang 2026-09-20, se test_normalize.py's
+    test_nilfisk_attix_without_class_letter_is_hard_rejected): et Attix-
+    modelnummer UDEN klassebogstav (fx "751-11") er nu selv en kendt fælde
+    og hård-afvises korrekt. Denne test dækker i stedet den resterende,
+    ægte gråzone: et Attix-modelnummer MED et H, som models.py's whitelist
+    blot ikke har den præcise variant af endnu ("44-0H" findes ikke, kun
+    "44-2H") -- her SKAL et kendt mærke stadig give 'se nærmere', ikke
+    afvises, da vi ikke kan udelukke det er en reel H-model."""
     listing = _listing(
-        "Nilfisk Attix 751-11 industristøvsuger blå", "Pæn stand", 2000
+        "Nilfisk Attix 44-0H industristøvsuger blå", "Pæn stand", 2000
     )
-    assert listing["dust_class"] == "ukendt"  # modelnummeret er IKKE i whitelisten
+    assert listing["dust_class"] == "ukendt"  # præcis denne variant er IKKE i whitelisten
     assert listing["known_brand_mentioned"] is True
     result = classify(listing, TEST_CONFIG)
     assert result["vurdering"] == "se nærmere"
@@ -183,10 +187,60 @@ def test_zero_signal_listing_is_afvist_not_se_naermere():
 
 
 def test_known_brand_still_protects_from_zero_signal_afvis():
-    """Modstykke til testen ovenfor: et KENDT mærke (uden model-match) skal
-    STADIG give 'se nærmere', ikke det nye 'intet signal'-afvis -- ellers
-    ville den tidligere rettede Nilfisk Attix-sag (se test_normalize.py)
-    blive ramt igen af en anden regel."""
-    listing = _listing("Nilfisk Attix 751-11 industristøvsuger blå", "Pæn stand", 2000)
+    """Modstykke til testen ovenfor: et KENDT mærke MED et modelnummer,
+    der har et H men ikke er i whitelisten endnu, skal STADIG give
+    'se nærmere', ikke det nye 'intet signal'-afvis. "751-11" (ingen
+    klassebogstav) er BEVIDST ikke brugt her -- den er nu korrekt
+    hård-afvist af models.py's "Attix uden klassebogstav"-regel (Opus 5,
+    2026-09-20), en helt separat og tidligere port i classify.py."""
+    listing = _listing("Nilfisk Attix 44-0H industristøvsuger blå", "Pæn stand", 2000)
     result = classify(listing, TEST_CONFIG)
     assert result["vurdering"] == "se nærmere"
+
+
+def test_70pct_rule_uses_raw_price_not_price_plus_filter_estimate():
+    """Regression -- brugerens eget 'billigst forsvarligt'-eksempel (Metabo
+    ASA 30 H PC, nypris 2.349 kr.): før denne rettelse blev 70%-tjekket
+    lavet på (pris + 800 kr. filterestimat), hvilket gjorde selv en fair
+    brugt-pris (1.500 kr.) til en automatisk afvisning, fordi 2.300 kr. >
+    70% af 2.349 kr. Nu tjekkes selve udbudsprisen alene."""
+    config = {**TEST_CONFIG, "prislofter": {**TEST_CONFIG["prislofter"]}}
+    listing = _listing(
+        "Metabo ASA 30 H PC sælges, komplet med slange og filter", "", 1500
+    )
+    assert listing["price_new_dkk_low"] == 2349
+    result = classify(listing, config)
+    assert result["vurdering"] != "afvis", result
+    assert "70%" not in " ".join(result["mangler_info"])
+
+
+def test_70pct_rule_skipped_entirely_for_confirmed_unused_machine():
+    """Regression -- en bekræftet fabriksny/ubrugt maskine skal IKKE
+    sammenlignes mod en brøkdel af sin egen nypris (reglen forudsætter
+    slid/afskrivning på en BRUGT maskine, en kategorifejl for en ny en).
+    'Nilfisk AERO 26-2H PC NU KUN 2.995 KR, fabriksny' (nypris 3.100-3.500)
+    blev tidligere afvist alene på 70%-reglen."""
+    listing = _listing(
+        "Nilfisk AERO 26-2H PC NU KUN 2.995 KR fabriksny", "", 2995
+    )
+    assert listing["unused_machine"] is True
+    result = classify(listing, TEST_CONFIG)
+    assert "70%" not in " ".join(result["mangler_info"])
+    assert result["classification_method"] != "afvist: over 70%-af-nypris-loftet"
+
+
+def test_filter_estimate_skipped_for_unused_machine_but_not_used_one():
+    """R8 -- filterestimatet (700-900 kr.) gælder kun BRUGTE maskiner (spec:
+    'på enhver BRUGT maskine'). Pris valgt så kun den ubrugte lander i/under
+    'god handel' (kompakt_h god_handel_max=2500): 1.800 alene vs.
+    1.800+800=2.600 med tillæg."""
+    common_desc = "Automatisk Tact-rens, FlowSensor, stikdåse, antistatisk slange"
+    unused = _listing("Nilfisk Attix 30-0H PC, fabriksny, ubrugt", common_desc, 1800)
+    used = _listing("Nilfisk Attix 30-0H PC, brugt men fin stand", common_desc, 1800)
+    assert unused["unused_machine"] is True
+    assert used["unused_machine"] is False
+
+    unused_result = classify(unused, TEST_CONFIG)
+    used_result = classify(used, TEST_CONFIG)
+    assert unused_result["vurdering"] == "køb nu"
+    assert used_result["vurdering"] == "se nærmere"

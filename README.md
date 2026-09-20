@@ -64,6 +64,70 @@ levende markedspladser (ikke kun syntetiske unit-tests):
 Se git-historikken/kommentarerne i `scraper/scraper/sources/*.py` og
 `scraper/scraper/models.py` for de fulde begrundelser.
 
+## Kritisk Opus 5-gennemgang af søgeresultater vs. opdrag (2026-09-20)
+
+Brugeren bad om en dybdegående, kritisk sammenligning af de faktiske
+søgeresultater mod det oprindelige opdrag, fordi for meget irrelevant fandt
+igennem. To strukturelle fund forklarede det meste:
+
+- **Produktionen kørte kun 3 søgeord, ikke de ~53 i `config.yaml`.**
+  `search_terms.py` seedede Turso ÉN gang ved første kørsel og læste aldrig
+  config.yaml igen -- en tidlig ad-hoc smoke-test-kørsel med kun 3 termer
+  låste dem permanent fast. Rettet: `load_search_terms()` sikrer nu ALTID
+  (idempotent, hver kørsel) at config.yaml's termer findes i Turso, uden at
+  røre allerede-eksisterende (inkl. bevidst deaktiverede) termer.
+- **Stale rækker blev aldrig genklassificeret.** `pipeline.py` sprang tidligere
+  tilbehørs-/udlejningsannoncer helt over (`continue` FØR normalisering) --
+  en allerede-gemt rækkes GAMLE vurdering forblev synlig for evigt, uanset
+  senere filter-forbedringer. Rettet: rækken normaliseres og SKRIVES altid,
+  med en direkte "afvis"-dom for tilbehør, så fremtidige regel-ændringer
+  automatisk retter allerede-scrapede rækker ved næste besøg.
+
+Kvantificeret støjniveau i en stikprøve (87 rækker, kun 3 søgeord): af 25
+ikke-afviste fund var kun 3 (12%) reelt plausible H/M-maskiner. Konkrete
+rettelser i `models.py`/`normalize.py`/`classify.py`:
+
+- **Nilfisk Attix/Alto uden klassebogstav** (44% af al støj i stikprøven,
+  fx "Attix 50-21", "ATTIX 751-11") hård-afvises nu -- Attix-seriens
+  variant-tal ender på -0H/-2H (H) eller -2M (M), mens -01/-11/-21/-51 er
+  ingen klasse, præcis den fælde opdraget selv nævner.
+- **Kärcher NT uden klassebogstav** generaliseret (dækkede kun "NT 35/1"/
+  "NT 30/1", missede "NT 45/1", "NT 30/1 Wet & Dry" -- opdragets egen
+  "mest udbudte maskine overhovedet").
+- **Stavefejl-tolerant Attix-genkendelse** ("Atto", "Attixx", "attik" set
+  i rigtige annoncer) -- lukkede 2 ægte fund ind der ellers gik tabt.
+  **Ronda H-serie** generaliseret fra kun "2800 H" til hele serien (fandt
+  "RONDA 80H", "RONDA 1800H").
+- **Titel-scoped tilbehørsfilter** (poser/børste/dyse/slangesæt/mundstykke)
+  adskilt fra det brede tekstfilter, så en hel maskine der blot NÆVNER
+  medfølgende poser i beskrivelsen ikke rammes fejlagtigt.
+- **`known_brand_mentioned`-fribilletten** kræver nu OGSÅ et modelnummer-
+  agtigt tal -- "Bosch støvsuger"/"Nilfisk støvsuger" (intet at verificere)
+  afvises nu i stedet for at få en gratis "se nærmere".
+- **Prisregler rettet** (se også brugerens eget "billigst forsvarligt"-
+  eksempel, Metabo ASA 30 H PC): 70%-af-nypris-tjekket bruger nu selve
+  UDBUDSPRISEN, ikke pris+filterestimat (ellers kunne en lav-nypris-model
+  aldrig bestå selv en fair brugt-pris), og springes helt over for en
+  bekræftet fabriksny/ubrugt maskine (reglen forudsætter slid på en BRUGT
+  maskine -- en kategorifejl at anvende på en ny).
+- **`valideret`-filter** (ny, Opus 5-anbefaling): en UAFHÆNGIG akse fra
+  vurdering -- "er støvklassen bekræftet via et faktisk modelnavn?", ikke
+  "er det et godt køb?". Beregnet ved query-tid i Worker'en (som
+  `forhandlingsmulighed`), ikke i Python, netop for at undgå samme
+  stale-data-problem som ovenfor. Tilgængelig som `?validated=1` og en
+  "Kun validerede"-tjekboks i frontend'en.
+- **M-klasse-søgeord fjernet** (brugeren har afklaret at kun H reelt har
+  interesse i praksis): 25 M-termer brugte ~1/3 af søgebudgettet og fandt
+  præcis 1 M-annonce i hele datasættet. M-modellerne er STADIG i
+  `MODEL_WHITELIST` (disambiguering/blacklist-funktion), blot ikke aktivt
+  opsøgt. Frontend'en filtrerer nu som standard til kun H-klasse, med et
+  eksplicit "Alle klasser"-valg for at se M igen.
+- **Watchdog-timeout udvidet** (900s, alle Playwright-kilder): efter
+  search_terms-reseed-fixet ovenfor voksede en fuld kørsel fra 3 til ~53
+  termer, hvilket overskred det gamle 300s-budget -- konkret observeret:
+  en hel kørsels resultater gik tabt, fordi den underliggende fetch-tråd
+  ikke kan afbrydes (se `main.py`'s kommentar), kun opgives af watchdog'en.
+
 ## Kendte begrænsninger (bevidst ikke bygget i denne omgang)
 
 - **Ingen notifikationer/dagsrapport**: specen beder om "underret straks ved
