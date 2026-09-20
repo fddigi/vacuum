@@ -263,6 +263,11 @@ def test_accessory_title_pattern_excludes_pose_boerste_slangesaet_ads():
         "Nilfisk børste , Nilfisk",
         "Nilfisk Filterpose til Attix 751/761/961",
         "Nilfisk Alto ATTIX 7 Liquid slangesæt",
+        # R11 (Opus 5-gennemgang af live resultater, 2026-09-20): disse to
+        # blev fejlagtigt godkendt som 'valideret' (rigtigt modelmatch i
+        # titlen overtrumfede tilbehørs-signalet) -- se normalize.py's R11.
+        "Sicherheitsfiltersack für Attix 30-0H PC, 5er Pack",
+        "Bosch GAS 35 H AFC 8x PE-Säcke",
     ]
     for title in accessory_titles:
         assert is_accessory_title(title), title

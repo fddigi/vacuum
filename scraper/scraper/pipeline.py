@@ -203,6 +203,25 @@ def run_source(
                     "classification_method": "afvist: tilbehør/udlejning (tekstfilter)",
                     "spoergsmaal_til_saelger": [],
                 }
+                # R12 (Opus 5-gennemgang af live resultater, 2026-09-20): Workerens
+                # "valideret"-felt (se worker/src/index.ts) beregnes UDELUKKENDE fra
+                # model_key/klasse_kilde/dust_class -- felter der stadig kom fra
+                # normalize_listing() ovenfor og derfor IKKE blev påvirket af dette
+                # afvis-verdict. Konkret fund: "Sicherheitsfiltersack für Attix
+                # 30-0H PC" matchede Attix-modellen (kompatibilitets-omtale, ikke
+                # selve maskinen) og blev derfor vist som "✓ valideret" i
+                # frontend'en, selvom det er en reservedelsannonce. Nulstil
+                # model-/klassefelterne her, så en bekræftet tilbehørsannonce
+                # aldrig kan tælle som en valideret maskine-observation.
+                listing = {
+                    **listing,
+                    "model_key": None,
+                    "brand": None,
+                    "model_label": None,
+                    "dust_class": "ingen (L/ukendt)",
+                    "klasse_kilde": None,
+                    "container_l": None,
+                }
             else:
                 verdict = classify.classify(listing, config)
 

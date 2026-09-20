@@ -31,6 +31,7 @@ def mentions_known_brand(text: str) -> bool:
     whitelisten ikke dækkede endnu, forkert auto-afvist)."""
     return bool(_KNOWN_BRAND_PATTERN.search(text))
 
+
 # Tilbehør/udlejning/søges/reservedele/manual -- IKKE salg af en hel maskine.
 # Dækker dansk/engelsk/tysk/svensk, samme princip som PASPEAKERS' ACCESSORY_
 # OR_RENTAL_PATTERN men med støvsuger-specifikt ordforråd (filter/slange/
@@ -130,17 +131,53 @@ def is_accessory_or_rental(text: str) -> bool:
 ACCESSORY_TITLE_PATTERN = re.compile(
     r"\b(pose[rn]?|filterpose[rn]?|st[øo]vsugerpose[rn]?|b[øo]rste[rn]?|"
     r"mundstykke[rn]?|slanges[æa]t|d[yø]se[rn]?|filterelement(?:er)?|"
-    r"kulfilter|hjuls[æa]t|adapter|bags?|nozzle|brush)\b",
+    r"kulfilter|hjuls[æa]t|adapter|bags?|nozzle|brush)\b"
+    # Tyske sammensatte ord ("Filtersack", "Sicherheitsfiltersack",
+    # "Ersatzfilterbeutel") har ingen mellemrum foran sack/beutel, så disse to
+    # kræver INGEN venstre-\b (kun højre, som stadig sikrer ordslutning).
+    r"|s[äa]ck(?:e|en)?\b|beutel(?:n)?\b",
     re.I,
+)
+
+# R11 (Opus 5-gennemgang af live resultater, 2026-09-20): fund "Sicherheits-
+# filtersack für Attix 30-0H PC, 5er Pack" (1.112 kr) og "Bosch GAS 35 H AFC
+# 8x PE-Säcke" (261 kr) blev fejlagtigt godkendt som 'valideret' -- begge er
+# reservedelsannoncer for et EGET filterprodukt, ikke maskinen, men titlens
+# model-kompatibilitets-omtale ("für Attix 30-0H PC") gav et ægte model_key-
+# match, som den gamle "kun tilbehør hvis INTET modelmatch"-logik fejlagtigt
+# lod overtrumfe tilbehørs-signalet. To selvstændige tegn på at modelmatchet
+# her er en KOMPATIBILITETS-reference (til reservedelen), ikke selve
+# maskinens navn: (1) en præposition der betyder "til/for" placeret et sted
+# i titlen ("für"/"passend für"/"kompatibel med"/"til <Model>"), eller (2) et
+# pakke-/styktal ("8x", "5er Pack", "10 stk.") som reservedele sælges i, men
+# enkeltmaskiner aldrig gør. "til"/"till" er for almindelige danske/svenske
+# ord til at bruges alene (fx "til salg" ville ellers give falske positiver)
+# -- derfor kræves et stort forbogstav/tal lige efter (typisk et mærke-/
+# modelnavn: "til Attix...", "til Nilfisk...").
+_ACCESSORY_COMPAT_PATTERN_CI = re.compile(
+    r"\b(f[üu]r|passende?\s+f[üu]r|kompatibel\s+(?:mit|med)|passar)\b", re.I
+)
+_ACCESSORY_COMPAT_TIL_PATTERN = re.compile(r"\btill?\b\s+(?=[A-ZÆØÅ0-9])")
+_PACK_QUANTITY_PATTERN = re.compile(
+    r"\b\d+\s*(?:x\b|er\s*(?:pack|satz)|stk\.?|st[üu]ck|pcs?\.?|pack\b)", re.I
 )
 
 
 def is_accessory_title(title: str) -> bool:
     """True hvis titlens hovedvare er tilbehør (pose/børste/dyse/slangesæt
-    osv.) OG titlen ikke selv matcher en whitelistet hel-maskine-model.
-    Kører KUN på titlen (se modulets kommentar ovenfor for hvorfor)."""
+    osv.) OG titlen ikke selv matcher en whitelistet hel-maskine-model --
+    MEDMINDRE modelmatchet blot er en kompatibilitets-/pakke-reference for
+    selve reservedelen (se R11 ovenfor), hvor tilbehørs-signalet vinder
+    uanset modelmatch. Kører KUN på titlen (se modulets kommentar ovenfor
+    for hvorfor)."""
     if not ACCESSORY_TITLE_PATTERN.search(title or ""):
         return False
+    if (
+        _ACCESSORY_COMPAT_PATTERN_CI.search(title or "")
+        or _ACCESSORY_COMPAT_TIL_PATTERN.search(title or "")
+        or _PACK_QUANTITY_PATTERN.search(title or "")
+    ):
+        return True
     return classify_model(title or "").get("model_key") is None
 
 
