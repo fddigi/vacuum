@@ -128,6 +128,25 @@ rettelser i `models.py`/`normalize.py`/`classify.py`:
   en hel kørsels resultater gik tabt, fordi den underliggende fetch-tråd
   ikke kan afbrydes (se `main.py`'s kommentar), kun opgives af watchdog'en.
 
+**Efter en fuld kørsel med alle ovenstående fixes** (1.049 rå fund, 8
+kilder, alle 53 søgetermer) fandt en ny Opus 5-gennemgang af de FAKTISKE
+resultater 19 filterpose-/filtersæk-reservedelsannoncer der stadig lækkede
+igennem (fx "Sicherheitsfiltersack für Attix 30-0H PC", "Bosch GAS 35 H AFC
+8x PE-Säcke") -- to af dem endda vist som "✓ valideret". To uafhængige
+årsager, begge rettet:
+- `is_accessory_title()` lod et modelmatch i titlen (reelt en
+  kompatibilitets-reference for reservedelen, "...für Attix 30-0H PC")
+  overtrumfe tilbehørs-signalet. Rettet med et pakke-/styktal-mønster
+  ("5er Pack", "8x") og et "til/für/passend für"-mønster der vinder
+  uanset modelmatch.
+- Selv når tilbehør korrekt blev detekteret, nulstillede `pipeline.py` kun
+  `vurdering`, ikke `model_key`/`dust_class`/`klasse_kilde` -- netop de
+  felter `valideret` beregnes fra. Rettet til også at nulstille disse ved
+  tilbehørs-override.
+De 19 allerede-scrapede rækker er patchet direkte i Turso (ingen grund til
+en ny 1-times fuld kørsel for 19 kendte rækker); fremtidige kørsler retter
+det automatisk via samme "altid genberegn, aldrig skip" mekanisme som R10.
+
 ## Kendte begrænsninger (bevidst ikke bygget i denne omgang)
 
 - **Ingen notifikationer/dagsrapport**: specen beder om "underret straks ved
