@@ -193,10 +193,17 @@ def _kandidat_signal(listing: dict, config: dict) -> tuple[str | None, str | Non
             "minimumspris_svagt_signal_dkk", config.get("filter_replacement_estimate_dkk", 800)
         )
         price = listing.get("landed_price_dkk")
-        # En pris på None er typisk en auktion uden bud endnu (klaravik/
-        # auktionshuset/retrade) -- den må ikke tolkes som "gratis, altså støj",
-        # så prisbunden springes over og annoncen beholdes som kandidat.
-        if price is not None and price < floor:
+        # AUKTIONER ER UNDTAGET. Prisen fra klaravik/auktionshuset/retrade er
+        # det AKTUELLE BUD, ikke en udbudspris -- 0 kr. eller 50 kr. betyder
+        # "ingen/få bud endnu", ikke "sælgeren vurderer maskinen til 50 kr."
+        # (auktionshuset.dk er et konkursauktionshus, hvor stort set alle lots
+        # starter på 0-50 kr.). At lade prisbunden gælde der ville ramme
+        # præcis de to kilder hele denne ændring skal hjælpe. Samme
+        # forsigtighedsprincip som pipeline.py's is_auction-nedgradering, blot
+        # i den modsatte retning. En pris på None (klaravik uden bud) er
+        # dækket af samme grund.
+        is_auction = bool((listing.get("raw") or {}).get("is_auction"))
+        if price is not None and price < floor and not is_auction:
             return None, None
         return "mærke+industrikategori", _KANDIDAT_NOTER["mærke+industrikategori"]
     return None, None

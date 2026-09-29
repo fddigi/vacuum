@@ -413,8 +413,23 @@ def test_price_floor_only_applies_to_the_weakest_step():
     assert verdict["vurdering"] != "afvis"
 
 
-def test_auction_without_a_bid_is_not_treated_as_cheap_noise():
-    """klaravik/auktionshuset/retrade leverer AKTUELT BUD -- 0 kr. betyder
-    'ingen bud endnu', ikke 'gratis, altså støj'."""
-    listing = {**_listing("Industristøvsuger Nilfisk, konkursbo", "", 0), "landed_price_dkk": None}
-    assert classify(listing, LADDER_CONFIG)["vurdering"] == "se nærmere"
+def test_auction_bids_are_exempt_from_the_price_floor():
+    """klaravik/auktionshuset/retrade leverer AKTUELT BUD, ikke en udbudspris
+    -- 0-50 kr. betyder "ingen/få bud endnu". auktionshuset.dk er et
+    konkursauktionshus hvor stort set alle lots starter der, så en prisbund
+    ville ramme præcis de to kilder ændringen skal hjælpe."""
+    # Ingen bud overhovedet (klaravik springer disse over, men medtaget for
+    # fuldstændighed).
+    no_bid = {**_listing("Industristøvsuger Nilfisk, konkursbo", "", 0), "landed_price_dkk": None}
+    assert classify(no_bid, LADDER_CONFIG)["vurdering"] == "se nærmere"
+
+    # Et lavt startbud på en auktion må ikke læses som en lav udbudspris.
+    low_bid = {
+        **_listing("Industristøvsuger Nilfisk, konkursbo", "", 50),
+        "raw": {"is_auction": True},
+    }
+    assert classify(low_bid, LADDER_CONFIG)["vurdering"] == "se nærmere"
+
+    # Samme titel og pris på en FASTPRIS-kilde rammes stadig af bunden.
+    fixed_price = _listing("Industristøvsuger Nilfisk, konkursbo", "", 50)
+    assert classify(fixed_price, LADDER_CONFIG)["vurdering"] == "afvis"
