@@ -1154,6 +1154,16 @@ HARD_REJECT_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("ronda_200_uden_h", _p(r"\bronda\b.{0,10}?\b(?:200|2000)\b(?![\s-]*h\b)")),
     ("dewalt_l_serie", _p(r"\b(?:dc[\s-]*500|dcv[\s-]*582|dcv[\s-]*584l)\b")),
     ("bosch_l_serie", _p(r"\bgas[\s-]*(?:15|25|35)[\s-]*l\b")),
+    # KRITISK FUND (egen gennemgang af live-data, 2026-09-29): "FLEX VCE 33 L
+    # MC industristøvsuger" slap igennem kandidat-stigens svageste trin
+    # (mærke+industrikategori i classify.py) som "se nærmere", selvom "L" her
+    # er en EKSPLICIT klassebogstav i Flex' egen navngivning (samme princip
+    # som VCE 33 M AC/VCE 44 H AC) -- L-klasse er uden for scope i hele
+    # projektet. Bosch/Festool/Hilti/Makita/DeWalt har allerede en L-serie
+    # hård-afvisning ovenfor; Flex manglede sin. Mønsteret dækker den
+    # dokumenterede "VCE nn L MC"-serie (nn = 26/33/44, se
+    # stovsuger-modeloversigt2.md afsnit 10 og 11).
+    ("flex_l_serie", _p(r"\bvce[\s-]*\d{2,3}[\s-]*l[\s-]*mc\b")),
     ("bosch_18v", _p(r"\bgas[\s-]*18v\b")),
     ("fein_turbo", _p(r"\bfein\b.{0,15}\bturbo[\s-]*(?:ii|xl)\b")),
     ("laavkvalitetsmaerker", _p(r"\b(?:arebos|scheppach|powerplus|einhell)\b")),

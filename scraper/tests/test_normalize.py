@@ -76,6 +76,12 @@ def test_known_traps_from_spec_section_2_8_are_hard_rejected():
         "Nilfisk Multi II",
         "Fein Turbo II gammel",
         "Fein Turbo XL",
+        # RETTET 2026-09-29 (egen gennemgang af live-data efter kandidat-
+        # stigen): "FLEX VCE 33 L MC industristøvsuger" slap igennem som "se
+        # nærmere" -- L er en eksplicit klassebogstav i Flex' egen
+        # navngivning, ikke en ukendt specifikation.
+        "FLEX VCE 33 L MC industristøvsuger",
+        "Flex VCE 26 L MC",
     ]
     for text in traps:
         result = classify_model(text)
