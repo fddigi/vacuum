@@ -321,3 +321,100 @@ def test_corrected_container_volumes_still_land_in_a_price_band():
         assert result["vurdering"] == "afvis", (title, result)
         assert result["classification_method"] == "afvist: over prisloft (kompakt_h)", title
         assert not any("beholderstørrelse" in m for m in result["mangler_info"]), title
+
+
+# ---------------------------------------------------------------------------
+# KANDIDAT-STIGEN (ny 2026-09-29, Opus-review af intake/validering).
+# Alle titler herunder er hentet ORDRET fra rigtige annoncer: enten fra de 707
+# live-rækker i Turso eller fra probe-søgninger mod de faktiske markedspladser
+# samme dag. Se classify._kandidat_signal()'s kommentar for de målte tal.
+# ---------------------------------------------------------------------------
+LADDER_CONFIG = {**TEST_CONFIG, "minimumspris_svagt_signal_dkk": 800}
+
+
+def test_ladder_keeps_rejecting_the_noise_the_user_disqualified_by_hand():
+    """R5's oprindelige formål må IKKE gå tabt: brugeren afviste manuelt
+    'Bosch støvsuger'/'Nilfisk støvsuger' -- annoncer med et kendt mærke, men
+    absolut intet at verificere. Den brede variant af trin 4 (mærke + et
+    hvilket som helst støvsuger-ord) ville have lukket dem alle ind; den
+    smalle variant, der kræver et INDUSTRI-kategoriord, gør ikke."""
+    for title in (
+        "Bosch støvsuger",
+        "Nilfisk støvsuger",
+        "Bosch dammsugare rosa med teleskoprör",
+        "Nilfisk Compact dammsugare röd",
+        "Hilti dammsugare",
+        "Festool utförsäljning",
+    ):
+        verdict = classify(_listing(title, "", 1500), LADDER_CONFIG)
+        assert verdict["vurdering"] == "afvis", title
+        assert "intet identificerbart signal" in verdict["classification_method"], title
+
+
+def test_ladder_rescues_the_safety_vacuum_vocabulary_we_searched_for_ourselves():
+    """De tre live-rækker vi selv fandt via vores EGET søgeord 'Asbestsauger'
+    og derefter selv afviste som 'intet identificerbart signal'."""
+    for title, price in (
+        ("Asbestsauger", 1119),
+        ("Bosch Asbest-Sauger Industriestaubsauger", 2798),
+        ("Asbest Sauger Sicherheitssauger H", 3730),
+    ):
+        verdict = classify(_listing(title, "", price), LADDER_CONFIG)
+        assert verdict["vurdering"] == "se nærmere", title
+        assert "sikkerhedssuger-vokabular" in verdict["classification_method"], title
+
+
+def test_ladder_rescues_a_standalone_class_letter():
+    verdict = classify(_listing("Starmix H tør og våd støvsuger", "", 1500), LADDER_CONFIG)
+    assert verdict["vurdering"] == "se nærmere"
+    assert "klassebogstav" in verdict["classification_method"]
+    assert any("typeskilt" in m for m in verdict["mangler_info"])
+
+
+def test_ladder_rescues_the_users_own_klaravik_example():
+    """Brugerens konkrete eksempel. Den var usynlig for os af TO uafhængige
+    grunde: intet søgeord fandt den (se config.yaml's per_source), OG selv når
+    den blev fundet, havde den hverken modelnummer ('IS 2 styk' giver intet
+    \\d{2,4}-token) eller klassebogstav -- kun mærket Starmix og det danske
+    FLERTAL 'Industristøvsugere', som WEAK_EVIDENCE_PATTERN's afsluttende \\b
+    ikke kunne matche."""
+    verdict = classify(
+        _listing("Industristøvsugere Electrostar Starmix IS 2 styk", "", 2200), LADDER_CONFIG
+    )
+    assert verdict["vurdering"] == "se nærmere"
+    assert "mærke+industrikategori" in verdict["classification_method"]
+
+
+def test_weakest_ladder_step_has_a_price_floor():
+    """Målt på de 23 fund trin 4 gav: samtlige reelle kandidater lå på 1.050
+    kr. og opefter, mens fem af seks støj-fund lå under 800 kr."""
+    for title, price in (
+        ("Nilfisk industristøvsuger gammel model", 75),
+        ("Retro Nilfisk GSD støvsuger industristøvsuger", 100),
+        ("Numatic industristøvsuger med vogn og rør", 450),
+    ):
+        assert classify(_listing(title, "", price), LADDER_CONFIG)["vurdering"] == "afvis", title
+
+    assert (
+        classify(_listing("Nilfisk industristøvsuger med vogn og slange", "", 3500), LADDER_CONFIG)[
+            "vurdering"
+        ]
+        == "se nærmere"
+    )
+
+
+def test_price_floor_only_applies_to_the_weakest_step():
+    """FEJLTILSTAND, bevidst afgrænset: en billig maskine MED klassebogstav
+    skal overleve -- 'Flex-industristøversuger VCE44-AC H-klasse' til 500 kr.
+    er et rigtigt fund fra dba.dk."""
+    verdict = classify(
+        _listing("Flex-industristøversuger VCE44-AC H-klasse", "", 500), LADDER_CONFIG
+    )
+    assert verdict["vurdering"] != "afvis"
+
+
+def test_auction_without_a_bid_is_not_treated_as_cheap_noise():
+    """klaravik/auktionshuset/retrade leverer AKTUELT BUD -- 0 kr. betyder
+    'ingen bud endnu', ikke 'gratis, altså støj'."""
+    listing = {**_listing("Industristøvsuger Nilfisk, konkursbo", "", 0), "landed_price_dkk": None}
+    assert classify(listing, LADDER_CONFIG)["vurdering"] == "se nærmere"

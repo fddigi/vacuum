@@ -230,6 +230,138 @@ SKU-specifik mærkning. Version 3 lader dem dog stå i afsnit 7A's tabel og rett
 eksplicit kun 33-2H-familien (rettelse 8 og 9). Brand-defaulten er derfor
 uændret; en bredere nedgradering kræver brugerens beslutning.
 
+## Bredere indtag + egen datavalidering (2026-09-29, Opus 5-review)
+
+Brugerens opdrag: *"For alle datakilder bør vi ved indtag løsne kravet om
+kendte mærker uden modelnummer -- der vil sjældent eller aldrig være match på
+vores nuværende søgestrenge. Og så skal vi bygge vores egen datavalidering i
+vores ende. Få Opus til at foreslå en række metoder og teste hvad der giver
+resultater. Én metode kunne fx være at søge efter H i modelnavnet."*
+
+Alle tal herunder er **målt**, ikke estimeret: korpusset er 808 rigtige
+annoncetitler -- 707 live-rækker hentet fra Turso via Worker-API'et plus 101
+friske fund fra brede probe-søgninger kørt direkte mod klaravik.dk,
+auktionshuset.dk, dba.dk og retrade.eu samme dag.
+
+### Det strukturelle fund, der rammer alle metoder: der er ingen beskrivelse
+
+**Samtlige otte kilder sætter `"description": ""`.** Hele klassifikationen --
+model, støvklasse, tilbehørsfilter, bløde signaler, scoring -- hviler på
+annoncens TITEL alene. Det er ikke dokumenteret nogen steder og er den enkelt
+vigtigste begrænsning på hvad en valideringsmetode overhovedet kan udrette.
+To af brugerens foreslåede metoder falder direkte på det (se tabellen), og
+`has_model_token()`s spec-stripning er i praksis langt hårdere end tiltænkt,
+fordi den arbejder på 5-10 ord i stedet for et helt annoncekorpus.
+
+### De testede metoder
+
+| # | Metode | Målt resultat | Dom |
+|---|---|---|---|
+| 1a | Brugerens eget forslag råt: `\b\d{2,4}\s*-?\s*[HM]\b` | 30 fund, **14 reelle (47 %)** | Afvist alene |
+| 1b | Samme + krav om ordet "støvsuger" i titlen | 4 fund -- dræbte 10 af de 14 ægte | Afvist |
+| **1c** | **Klassebogstav (suffiks ELLER fritstående) + bredt domæne-anker** | **31 fund, 30 reelle (97 %)** | **Implementeret** |
+| 2 | Container/volumen + industri-ordforråd | 5 fund på 808, ingen diskriminerende kraft | Afvist |
+| **2b** | **Industri-/byggestøvsuger-kategoriord, flersproget** | **23 fund, ~10 reelle** | **Implementeret (trin 4)** |
+| 3 | Watt/vægt-heuristik | 6 fund, heraf `1300w bil dammsugare` og `Siemens dammsugare 1800W` | Afvist |
+| **4** | **Prisbund på det svageste trin** | Fjerner 5 af 6 støj-fund, koster 0 ægte | **Implementeret** |
+| 5 | Kilde-leveret kategori/brødkrumme | Ingen af de otte kilder opsamler den i dag | Ikke muligt uden ny scraping-kode |
+| 6 | Spec-tæthed i beskrivelsen | 4 fund på 808 titler, ét var en askestøvsuger | Afvist (kræver beskrivelser) |
+| **7a** | **Asbest-/sikkerhedssuger-ordforråd** (egen tilføjelse) | **3 af 3 fund reelle** | **Implementeret (trin 1)** |
+| **7b** | **"H-klasse"-ordstillingen** (egen tilføjelse) | **10 af 10 fund reelle** | **Implementeret** |
+
+**Metode 1's fejltilstand, konkret.** Al støjen fra det rå mønster var tyske
+annoncer hvor H betyder noget helt andet: dækkenes **hastighedsindeks**
+(`205/55R16 91H`, `225/50 R17 98H`, `265/60 R18 110H` -- fem forskellige
+Mercedes-hjulsæt), `Motorradanhänger mieten 24H` (timer),
+`Mercedes-Benz 380 SEC 126 H-Kennzeichen` (tysk veteranplade) og
+`Topforstærker, Blackheart BH 100 H` (et guitarforstærker-**Head**).
+Domæne-ankeret fjernede samtlige elleve uden at koste en eneste ægte maskine.
+Det ene resterende falske fund (`Absaugadapter ... Metabo KGS 254 M`, hvor 254
+er en savklinges diameter) lukkes i stedet af `ACCESSORY_TITLE_PATTERN`.
+
+**Metode 3's fejltilstand.** Præmissen -- at husholdningsstøvsugere kører
+lavere effekt -- holder ikke: de husholdningsmaskiner der overhovedet oplyser
+watt i titlen ligger på 1.300-2.000 W, altså præcis samme interval som
+industrimaskinerne.
+
+### Fire uafhængige fejl fundet undervejs
+
+1. **`_SPEC_UNIT_PATTERN` åd støvklasse M.** Det bare `m` var tænkt som
+   "meter", men af 11 titler med `\d+ m` brugte **ingen** det som længde --
+   otte var M-klasse-modelsuffikser. Konkret konsekvens: `Hilti VC 60 M-X`
+   (ægte M-maskine, 6.230 kr. på blocket.se) fik strippet sit eneste
+   modelnummer og blev afvist som "intet identificerbart signal".
+2. **`WEAK_EVIDENCE_PATTERN` kunne ikke matche dansk flertal.**
+   `industristøvsuger` stod med afsluttende `\b` og ramte derfor ikke
+   `IndustristøvsugerE` -- netop formen i brugerens eget Klaravik-eksempel.
+3. **Mønstrene var kun danske.** Otte rigtige tyske/svenske annoncer
+   (`Bosch Asbest-Sauger Industriestaubsauger`, `Nilfisk industridammsugare
+   med slang`, `Werkstattsauger Starmix ISP iPulse ARH-1635 Staubklasse H`)
+   havde intet signal overhovedet, alene på grund af sproget.
+4. **"H-klasse" blev slet ikke læst.** `EXPLICIT_CLASS_PATTERN` krævede ordet
+   *klasse* FØR bogstavet, så den omvendte -- og mindst lige så almindelige --
+   ordstilling gik tabt. Den nye gren kræver domæne-ankeret, fordi
+   `<bogstav>-Klasse` også er den tyske BILserie-betegnelse.
+
+### Kandidat-stigen erstatter den binære port
+
+Den gamle mekanik var **én** port: `known_brand_mentioned` (= kendt mærke
+**og** et modelnummer-agtigt tal). Porten blev indført bevidst 2026-09-20
+efter brugerens egen manuelle diskvalifikation af "Bosch støvsuger"/"Nilfisk
+støvsuger", og den er derfor **ikke slået fra** -- den er bevaret som trin 3 i
+en stige med fire trin (se `classify._kandidat_signal()`). Trinnet skrives i
+`classification_method`, så det altid kan ses hvilken regel der lukkede en
+annonce ind, og et enkelt trin kan strammes igen uden at røre de andre.
+
+`vurdering` er bevidst **ikke** udvidet med en fjerde værdi: husets etablerede
+mønster for en ny akse er `valideret` (beregnet i Worker'en, uafhængig af
+vurdering), og en ny vurdering ville kræve frontend-dropdown, badge-farve og
+en ændret `?vurdering=`-semantik for et signal der allerede kan aflæses i
+audit-feltet.
+
+**Målt effekt på de 707 live-rækker:** 10 annoncer går fra `afvis` til `se
+nærmere`, og alle ti er reelle kandidater -- bl.a. `Asbestsauger` (1.119 kr.),
+`Bosch Asbest-Sauger Industriestaubsauger` (2.798 kr.), `Starmix H tør og våd
+støvsuger` (1.500 kr.) og `Hilti VC 60 M-X` (6.230 kr.). Yderligere fire får
+for første gang en støvklasse tildelt fra annonceteksten (`RONDA 40 HEPA
+H-KLASSE`, `NUMATIC Rygstøvsuger RHB150NX H-klasse`, `Festool CTH 26
+dammsugare (H-klass)`, `NILFISK VHS010 EX Sicherheitssauger H Klasse`).
+Ingen af den støj porten oprindeligt blev bygget imod kommer tilbage.
+
+### Indtag: hybrid, ikke global breddesøgning
+
+Søgeordene har hidtil været **fuldstændig globale** -- `main.py` gav samme
+flade liste til alle otte kilder. Live-målingerne peger på tre forskellige
+svar, ikke ét:
+
+- **Globalt tilføjet** (produktivt overalt, lav støj): ét-ords
+  kategori-substantiver. `industristøvsuger` gav 53 træf på dba.dk -- det
+  mest produktive enkeltord overhovedet, med bl.a. `Hilti VC 20H-X`,
+  `RONDA 80H 25` og `Bygma ISC H-163 Safe` -- og det stod slet ikke i listen
+  i forvejen. Plus `Industriesauger`, `industridammsugare` og det bare
+  `Sicherheitssauger` (strengt bredere end den eksisterende trevorsfrase
+  "Sicherheitssauger Klasse H").
+- **Per kilde** (ny mekanik, `search_terms.per_source` +
+  `search_terms.config_for_source()`): det bare `støvsuger` til **kun**
+  klaravik og auktionshuset. Klaravik fandt 0 træf på `sikkerhedsstøvsuger`
+  og 0 på `Nilfisk Attix 33-2H`, men 1 på `støvsuger` -- og det ene træf var
+  præcis brugerens efterlyste annonce. Auktionshuset gav 31 lots på samme
+  ord. Mekanikken kræver **ingen** ændring i nogen `sources/*.py`: alle otte
+  læser allerede `primary + secondary`, så supplementet lægges i `secondary`
+  for den ene kilde. Supplementer seedes aldrig til Turso's globale
+  `search_terms`-tabel.
+- **Bevidst ikke tilføjet:** bare mærkenavne. `Nilfisk` gav 54 træf på dba.dk
+  med **nul** H-klasse-maskiner (højtryksrensere, vinduespudsere,
+  Buddy/One/Elite-husholdningsstøvsugere) og 5 på klaravik.dk, også nul
+  relevante. Mærkeord er den dyreste og mindst præcise breddesøgning der
+  findes i denne kategori.
+
+**retrade.eu bør formentlig deaktiveres.** Seks brede termer tilsammen gav
+ÉT træf (fejemaskinen `Nilfisk City Ranger 3500`), og 0 på både `støvsuger` og
+`dammsugare`. Kilden har intet udbud i kategorien, så bredere søgning kan ikke
+hjælpe -- den koster kun søgebudget. Ikke slået fra her, da det er brugerens
+beslutning (samme slags valg som vinted).
+
 ## Kendte begrænsninger (bevidst ikke bygget i denne omgang)
 
 - **Ingen notifikationer/dagsrapport**: specen beder om "underret straks ved
@@ -238,6 +370,11 @@ uændret; en bredere nedgradering kræver brugerens beslutning.
   (mail? Slack/Discord-webhook? push?) før det kan bygges.
 - **`afstand_km` er ikke implementeret** (kræver geokodning af sælgers
   lokationstekst mod en fast radius) -- `lokation` vises, men ikke afstand.
+- **Ingen kilde opsamler en beskrivelse** (`"description": ""` i alle otte
+  `sources/*.py`) og ingen opsamler kategori/brødkrumme. Alt klassificeres på
+  titlen alene. Det blokerer konkret for spec-tæthedsmetoder og for
+  kilde-kategori-signaler (se Opus-reviewet 2026-09-29) og er den mest
+  oplagte næste investering, hvis valideringen skal videre.
 - **Model-whitelisten er ikke udtømmende** (spec selv erkender dette i sektion
   2.6, "verificér typeskilt") -- ukendte modelnumre fra kendte mærker
   (Nilfisk/Kärcher/Festool/Flex/Starmix/Metabo/Bosch/...) surfacer som "se

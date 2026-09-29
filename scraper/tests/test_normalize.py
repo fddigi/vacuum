@@ -10,6 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scraper.normalize import (
     classify_model,
     extract_soft_signals,
+    has_class_letter_signal,
+    has_model_token,
     is_accessory_or_rental,
     is_accessory_title,
     to_dkk,
@@ -321,3 +323,137 @@ def test_known_brand_mentioned_requires_a_model_like_number():
         extract_soft_signals("Nilfisk Attix 44-0H industristøvsuger")["known_brand_mentioned"]
         is True
     )
+
+
+def test_class_letter_signal_needs_a_domain_anchor():
+    """Ny 2026-09-29 (Opus-review af intake/validering). Brugerens eget
+    forslag -- "søg efter H i modelnavnet" -- generaliseret ud over
+    whitelisten. Ankerkravet er hele forskellen mellem 47 % og 97 % præcision
+    målt på 808 rigtige annoncetitler; alle titler herunder er hentet ordret
+    fra live-data (Turso) eller fra probe-søgninger samme dag."""
+    real_candidates = [
+        # Suffiks-grenen
+        "RONDA 80H 25 Industristøvsuger",
+        "Baier BSS 608H våd-/tørsuger 1200W",
+        "Bosch Professional Elektro-Nass- & Trockensauger GAS 35 H AFC",
+        "RONDA 2800H Green Tech",
+        # Fritstående-grenen -- ingen af disse har et tal foran bogstavet
+        "Starmix H tør og våd støvsuger",
+        "Asbest Sauger Sicherheitssauger H",
+        "Starmix Vaccufix H støvsuger",
+        "Nilfisk ATTIX 9 Industriesauger EX-Sauger Staubklasse H",
+    ]
+    for title in real_candidates:
+        assert has_class_letter_signal(title), title
+
+    # HELE støjbilledet fra det RÅ mønster uden anker (14 reelle af 30 fund).
+    # Bemærk at H i fire af dem er et DÆKS HASTIGHEDSINDEKS, i én er timer,
+    # i én en tysk veteranplade og i én et forstærker-HOVED.
+    not_vacuums = [
+        "4winterreifen+Alufelgen mercedes Bklasse 205/55R16 91H Brigestone",
+        "✓ MERCEDES C-KLASSE W205 205/60 R16 92H WINTERRÄDER WINTERREIFEN",
+        "4x Orig Mercedes-Benz Winterräder AMG 265/60 R18 110H G-Klasse A4",
+        "Winterreifen 205/55 R16 91H mit Alufelgen für Mercedes C- Klasse",
+        "⚡️Motorradanhænger mieten 24H➡️35€⚡️ Klasse B möglich",
+        "Mercedes-Benz 380 SEC 126 H-Kennzeichen",
+        "Topforstærker, Blackheart BH 100 H, 100 W",
+    ]
+    for title in not_vacuums:
+        assert not has_class_letter_signal(title), title
+
+
+def test_class_letter_signal_is_exposed_as_a_soft_signal():
+    signals = extract_soft_signals("Starmix H tør og våd støvsuger")
+    assert signals["klassebogstav_signal"] is True
+    # ... men det er IKKE bevis for klassen: klasse_kilde sættes ikke herfra.
+    assert classify_model("Starmix H tør og våd støvsuger")["dust_class"] == "ukendt"
+
+
+def test_safety_vacuum_vocabulary_is_its_own_signal():
+    """De tre live-rækker der motiverede mønsteret: vi SØGTE efter dem
+    ('Asbestsauger' er et af vores syv primære søgeord), fandt dem, og afviste
+    dem så selv som 'intet identificerbart signal'."""
+    for title in (
+        "Asbestsauger",
+        "Bosch Asbest-Sauger Industriestaubsauger",
+        "Asbest Sauger Sicherheitssauger H",
+        "NILFISK VHS010 EX Sicherheitssauger H Klasse",
+    ):
+        assert extract_soft_signals(title)["sikkerhedssuger_vokabular"] is True, title
+
+    # Det bare ord "asbest" må ALDRIG alene tælle -- det dækker også det stik
+    # modsatte (maskinen HAR kørt asbest), se ASBESTOS_SKU_MARKING_PATTERN.
+    assert extract_soft_signals("Støvsuger, har kørt asbest")["sikkerhedssuger_vokabular"] is False
+
+
+def test_industrial_category_pattern_is_multilingual_and_plural_tolerant():
+    """Otte rigtige tyske/svenske annoncer havde INTET signal overhovedet,
+    alene fordi husets mønstre kun dækkede dansk -- og brugerens eget
+    Klaravik-eksempel faldt på den danske FLERTALSFORM."""
+    for title in (
+        "Industristøvsugere Electrostar Starmix IS 2 styk",  # brugerens eksempel
+        "Nilfisk industridammsugare med slang",
+        "Werkstattsauger Starmix ISP iPulse ARH-1635 Staubklasse H",
+        "Bosch Asbest-Sauger Industriestaubsauger",
+        "Kärcher Profi Nass-Trockensauger NT35/1EcoTE mit Gerätesteckdose",
+        "Kärcher våd-/tørstøvsuger industristøvsuger",
+    ):
+        assert extract_soft_signals(title)["industri_kategori"] is True, title
+
+    # Det bare kategori-ord er BEVIDST ikke med: målt 38 fund, ~3 relevante.
+    for title in ("Bosch dammsugare rosa med teleskoprör", "Nilfisk Compact dammsugare röd"):
+        assert extract_soft_signals(title)["industri_kategori"] is False, title
+
+
+def test_model_token_survives_a_dust_class_m_suffix():
+    """Regression: '_SPEC_UNIT_PATTERN' læste det fritstående M i 'VC 60 M-X'
+    som enheden METER og strippede modelnummeret. Konsekvensen var at en ægte
+    M-klasse-maskine til 6.230 kr. på blocket.se blev afvist som 'intet
+    identificerbart signal'."""
+    assert has_model_token("Hilti VC 60 M-X")
+    assert extract_soft_signals("Hilti VC 60 M-X")["known_brand_mentioned"] is True
+    # Ægte enheder skal stadig strippes.
+    assert not has_model_token("Støvsuger 1500 watt")
+    assert not has_model_token("Slange 10 mtr")
+
+
+def test_german_compound_adapter_counts_as_accessory():
+    """Det ENESTE falske positive fund klassebogstav-valideringen producerede
+    på 808 rigtige titler -- '254 M' er savklingens diameter i mm."""
+    assert is_accessory_title("Absaugadapter für Nilfisk attix 30 auf Kappsäge Metabo KGS 254 M")
+
+
+def test_letter_first_class_statement_is_recognised_but_anchored():
+    """Ny 2026-09-29 (Opus-review): ordstillingen "H-klasse" (bogstav FØRST)
+    blev slet ikke matchet -- EXPLICIT_CLASS_PATTERN krævede ordet "klasse"
+    FØR bogstavet. Målt på 808 rigtige titler fandt den nye gren 10 annoncer,
+    og alle ti var ægte H/M-maskiner."""
+    for title in (
+        "RONDA 40 HEPA H-KLASSE",
+        "NUMATIC Rygstøvsuger RHB150NX H-klasse",
+        "Festool CTH 26 dammsugare (H-klass) + tillbehör",
+        "Flex-industristøversuger VCE44-AC H-klasse",
+        "Sicherheitssauger H Klasse, ukendt mærke",
+    ):
+        result = classify_model(title)
+        assert result["dust_class"] == "H", title
+        # STADIG kun annoncetekst -- svagere end et modelnavn, jf. spec.
+        assert result["klasse_kilde"] == "annoncetekst", title
+
+    assert classify_model("Starmix industristøvsuger – M-klasse")["dust_class"] == "M"
+
+    # HARD_REJECT vinder stadig over et klasse-udsagn i teksten, og det er med
+    # vilje: "Nilfisk Alto Attix 30-21 PC Staubsauger H Klasse" (set i
+    # live-data) er en Attix-30-21, som ER en L-maskine -- sælgerens påstand
+    # om H kan ikke omgøre modelnummeret. Jf. husets linje om hellere at
+    # afvise for meget end at godkende for meget.
+    assert classify_model("Nilfisk Alto Attix 30-21 PC Staubsauger H Klasse")["hard_reject"] is True
+
+    # Ankeret: "<bogstav>-Klasse" er også den tyske BILserie-betegnelse. Uden
+    # støvsuger-domænet må mønsteret ALDRIG udtale sig om en støvklasse.
+    for title in (
+        "Mercedes M-Klasse ML 320 sælges",
+        "Mercedes C-Klasse W204 17 Zoll Alufelgen Reifen 225 45 r17 H",
+    ):
+        assert classify_model(title)["dust_class"] != "M", title
+        assert classify_model(title)["klasse_kilde"] is None, title

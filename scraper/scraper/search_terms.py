@@ -77,3 +77,58 @@ def load_search_terms(vacuum_config: dict, turso: TursoClient | None) -> list[tu
     result = turso.execute("SELECT term, category FROM search_terms WHERE enabled = 1")
     logger.info("search_terms: %d aktive term(er) i Turso", len(result.rows))
     return [(row[0], row[1]) for row in result.rows]
+
+
+def config_for_source(vacuum_config: dict, source_name: str) -> dict:
+    """Returnerer en config hvor `search_terms.secondary` er netop DENNE kildes
+    supplerende søgeord (config.yaml's `search_terms.per_source`).
+
+    HVORFOR PER KILDE OG IKKE GLOBALT (ny 2026-09-29, Opus-review af intake):
+    søgeordene har hidtil været fuldstændig globale -- main.py gav den samme
+    flade liste til alle otte kilder. To tidligere reviews flaggede at det
+    blokerer for at hjælpe de kilder der har DÅRLIG frase-søgning, uden
+    samtidig at drukne dem der allerede fungerer. Live-målt 2026-09-29:
+
+      * klaravik.dk fandt 0 træf på 'sikkerhedsstøvsuger' og 0 på
+        'Nilfisk Attix 33-2H' (et af vores 63 produktionssøgeord), men 1 træf
+        på det bare 'støvsuger' -- og det ene træf er præcis den annonce
+        brugeren efterlyste: "Industristøvsugere Electrostar Starmix IS 2
+        styk". Klaravik matcher på delstreng, så ét kort ord har langt bedre
+        recall end en flerords-frase.
+      * auktionshuset.dk gav 31 lots på det bare 'støvsuger' mod en håndfuld
+        på fraserne -- kilden er en konkursauktion, hvor lot-titler er
+        "<Kategori> <MÆRKE> <model>" og sjældent indeholder vores fraser.
+      * dba.dk gav derimod 54 træf på det bare mærkeord 'Nilfisk', hvoraf
+        INGEN var H-klasse (højtryksrensere, vinduespudsere, Buddy/One/Elite-
+        husholdningsstøvsugere). Samme flodbølge ville ramme blocket.se og
+        kleinanzeigen.de, som allerede fungerer godt med de specifikke
+        modelfraser. Derfor er brede termer bevidst IKKE lagt i den globale
+        liste.
+      * retrade.eu gav 1 træf på seks brede termer tilsammen (en fejemaskine,
+        'Nilfisk City Ranger 3500'), og 0 på både 'støvsuger' og
+        'dammsugare'. Kilden har intet udbud i kategorien overhovedet, så den
+        får BEVIDST intet supplement -- bredere søgning kan ikke finde noget
+        der ikke er der.
+
+    Supplementerne seedes med vilje ALDRIG til Turso's search_terms-tabel
+    (_static_terms_from_config læser kun primary/secondary): tabellen er den
+    globale, webapp-redigerbare ønskeseddel, og et kildespecifikt søgeord
+    hører ikke hjemme der -- det ville gøre det globalt igen ved næste
+    kørsel."""
+    per_source = (vacuum_config.get("search_terms") or {}).get("per_source") or {}
+    extra = list(per_source.get(source_name) or [])
+    if not extra:
+        return vacuum_config
+    logger.info(
+        "search_terms: %s får %d kildespecifik(ke) ekstra term(er)", source_name, len(extra)
+    )
+    # LÆGGES OVEN I secondary, erstatter den ALDRIG: i Turso-tilstand er
+    # secondary tom (main.py flader alle termer ud i primary), men i
+    # lokal-only-tilstand indeholder den config.yaml's ~57 modelfraser, og de
+    # må ikke forsvinde bare fordi kilden også har et supplement.
+    existing = list(vacuum_config["search_terms"].get("secondary") or [])
+    merged = existing + [t for t in extra if t not in existing]
+    return {
+        **vacuum_config,
+        "search_terms": {**vacuum_config["search_terms"], "secondary": merged},
+    }

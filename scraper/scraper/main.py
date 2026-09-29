@@ -26,7 +26,7 @@ from scraper_core.turso_client import TursoClient
 
 from .pipeline import SYNC_PROTECTED_COLUMNS, TURSO_SCHEMA, run_source
 from .price_history import sync_price_history_to_turso
-from .search_terms import load_search_terms
+from .search_terms import config_for_source, load_search_terms
 from .source_cadence import SOURCE_STATE_SCHEMA, mark_source_run, should_run_source
 from .sources import (
     auktionshuset,
@@ -132,6 +132,14 @@ def _run_locked(settings: Settings, force_source: str | None = None) -> int:
                     vacuum_config["search_terms"] = {
                         "primary": [term for term, _category in dynamic_term_pairs],
                         "secondary": [],
+                        # Kildespecifikke supplementer lever KUN i config.yaml og
+                        # seedes aldrig til Turso -- de skal bæres med her, fordi
+                        # linjen ovenfor erstatter hele search_terms-dict'en med
+                        # Turso's globale ønskeseddel. Se search_terms.
+                        # config_for_source() for hvorfor de er per kilde.
+                        "per_source": (vacuum_config.get("search_terms") or {}).get(
+                            "per_source", {}
+                        ),
                     }
 
                     all_price_drop_events = []
@@ -153,7 +161,11 @@ def _run_locked(settings: Settings, force_source: str | None = None) -> int:
                                 name
                             ]
                         raw_count, changed, price_drop_events = run_source(
-                            store, name, module.fetch, vacuum_config, **run_source_kwargs
+                            store,
+                            name,
+                            module.fetch,
+                            config_for_source(vacuum_config, name),
+                            **run_source_kwargs,
                         )
                         mark_source_run(store.connection, name)
                         total_raw += raw_count
@@ -199,7 +211,11 @@ def _run_locked(settings: Settings, force_source: str | None = None) -> int:
                     if name in SOURCE_TIMEOUT_OVERRIDES:
                         run_source_kwargs["fetch_timeout_seconds"] = SOURCE_TIMEOUT_OVERRIDES[name]
                     raw_count, changed, _price_drop_events = run_source(
-                        store, name, module.fetch, vacuum_config, **run_source_kwargs
+                        store,
+                        name,
+                        module.fetch,
+                        config_for_source(vacuum_config, name),
+                        **run_source_kwargs,
                     )
                     mark_source_run(store.connection, name)
                     total_raw += raw_count

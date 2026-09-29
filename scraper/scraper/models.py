@@ -1180,9 +1180,96 @@ HARD_REJECT_PATTERNS: list[tuple[str, re.Pattern]] = [
 # støvklasse (spec: "Disse formuleringer er IKKE bevis for støvklasse").
 # Bruges af normalize.py til at afgøre om en UKLASSIFICERET annonce (intet
 # whitelist-match) reelt kun sælger sig selv på filter-marketing.
+#
+# RETTET 2026-09-29 (Opus-review af intake/validering): "industristøvsuger"
+# og "byggestøvsuger" stod med et afsluttende \b og matchede derfor IKKE den
+# danske flertalsform "industristøvsugerE" -- netop den form brugerens eget
+# Klaravik-eksempel bruger ("Industristøvsugere Electrostar Starmix IS 2
+# styk"). Konsekvens i live-data: annoncen fik weak_evidence_only=False og
+# faldt derfor helt ned i "intet identificerbart signal" i stedet for at nå
+# nogen af de mildere grene. `\w*` i stedet for `\b` dækker nu ental, flertal
+# og bestemt form. Samme rettelse for "professionel/professionelle".
 WEAK_EVIDENCE_PATTERN = _p(
-    r"\b(hepa(?:\s*1[34])?|99[.,]9[79]\s*%|99[.,]995\s*%|industrist[øo]vsuger|"
-    r"byggest[øo]vsuger|professionel|filtrerer\s+fint\s+st[øo]v)\b"
+    r"\b(hepa(?:\s*1[34])?|99[.,]9[79]\s*%|99[.,]995\s*%|industrist[øo]vsuger\w*|"
+    r"byggest[øo]vsuger\w*|professionel\w*|filtrerer\s+fint\s+st[øo]v)\b"
+)
+
+# ---------------------------------------------------------------------------
+# NYT 2026-09-29 (Opus-review af intake/validering, bestilt af brugeren:
+# "løsn kravet om kendt mærke uden modelnummer ... byg vores egen
+# datavalidering"). Tre nye, uafhængige tekst-signaler der tilsammen erstatter
+# den tidligere ENE binære port (known_brand_mentioned skal have et
+# modelnummer-agtigt tal, se normalize.has_model_token) med en rangordnet
+# stige. Alle tre er målt mod 808 RIGTIGE annoncetitler (707 live-rækker fra
+# Turso + 101 friske fund fra brede probe-søgninger mod klaravik/auktionshuset/
+# dba/retrade) -- se classify.py's _kandidat_signal() for tallene.
+#
+# VIGTIG PRÆMIS FOR ALLE TRE: INGEN kilde leverer en beskrivelse. Samtlige
+# otte sources/*.py sætter `"description": ""` -- hele klassifikationen hviler
+# på TITLEN alene. Derfor er tekst-tunge metoder (spec-tæthed, watt/vægt,
+# flow/filterklasse-opremsning) målt til at være uanvendelige her, mens korte,
+# titel-bærende signaler (klassebogstav, kategori-substantiv) bærer næsten al
+# information. Skulle en kilde senere begynde at levere beskrivelser, bliver
+# de tunge metoder først da relevante at genoverveje.
+# ---------------------------------------------------------------------------
+
+# Kategori-substantivet "det her er en professionel våd-/tørsuger, ikke en
+# husholdningsstøvsuger" -- flersproget (da/sv/de), fordi live-data viste at
+# WEAK_EVIDENCE_PATTERN kun dækkede dansk: otte rigtige tyske og svenske
+# annoncer ("Bosch Asbest-Sauger Industriestaubsauger", "Nilfisk
+# industridammsugare med slang", "Werkstattsauger Starmix ISP iPulse ARH-1635
+# Staubklasse H") havde INTET signal overhovedet efter husets mønstre, alene
+# fordi ordene var tyske/svenske. Bevidst UDEN det bare "støvsuger"/
+# "dammsugare": målt på de samme data giver det bare kategoriord 38 fund hvoraf
+# ~3 er relevante (resten er "Bosch dammsugare rosa med teleskoprör"-støj),
+# mens industri-formerne giver 23 fund hvoraf ~10 er reelle kandidater.
+INDUSTRIAL_CATEGORY_PATTERN = _p(
+    r"\b(industrist[øo]vsuger\w*|byggest[øo]vsuger\w*|industridammsugar\w*|"
+    r"byggdammsugar\w*|industriesauger\w*|industriestaubsauger\w*|"
+    r"bau(?:stellen)?sauger\w*|handwerkssauger\w*|werkstattsauger\w*|"
+    r"nass[\s-]*(?:und\s*)?trocken\w*|"
+    r"v[åa]d[\s/-]*(?:og\s*)?t[øo]r(?:st[øo]vsuger|suger)\w*|"
+    r"v[åa]t[\s/-]*(?:och\s*)?torrdammsugar\w*)\b"
+)
+
+# NÆR-DEFINITORISK for støvklasse H: en maskine der markedsføres som
+# asbestsuger/sikkerhedssuger PÅSTÅR i sig selv H-klasse (asbest kræver H).
+# Det er et kvalitativt stærkere udsagn end INDUSTRIAL_CATEGORY_PATTERN
+# ovenfor, og adskilt fra ASBESTOS_APPROVED_TEXT_PATTERN i normalize.py, som
+# handler om GODKENDELSE ("asbestgodkendt", "TRGS 519"), ikke om hvad slags
+# maskine der sælges.
+#
+# Konkret fund der motiverede mønsteret: "asbestsuger"/"Asbestsauger" er to af
+# vores SYV egne primære søgeord -- vi søgte altså aktivt efter dem, fandt dem
+# (3 live-rækker: 'Asbestsauger' 1.119 kr., 'Bosch Asbest-Sauger
+# Industriestaubsauger' 2.798 kr., 'Asbest Sauger Sicherheitssauger H'
+# 3.730 kr.) og afviste dem derefter selv som "intet identificerbart signal",
+# fordi ingen af dem havde et modelnummer. Det er en lukket sløjfe, ikke et
+# filter.
+#
+# Det bare ord "asbest" er BEVIDST IKKE med -- se den lange begrundelse over
+# normalize.ASBESTOS_SKU_MARKING_PATTERN: "asbest" alene dækker også det stik
+# modsatte (maskinen HAR kørt asbest). Her kræves det sammensat med selve
+# maskin-substantivet.
+SAFETY_VACUUM_PATTERN = _p(
+    r"\b(sikkerhedsst[øo]vsuger\w*|sikkerhedssuger\w*|sicherheitssauger\w*|"
+    r"s[äa]kerhetsdammsugar\w*|asbest[\s-]*sauger\w*|asbest[\s-]*s[uv]ger\w*|"
+    r"asbest[\s-]*dammsugar\w*|h[\s-]*sauger\w*)\b"
+)
+
+# "Handler annoncen overhovedet om en støvsuger?" -- bruges KUN som anker for
+# klassebogstav-signalet nedenfor (se normalize.has_class_letter_signal), ikke
+# som selvstændig evidens. Uden ankeret er et fritstående "H"/"M" nær
+# værdiløst: målt på de 808 titler gav det rå mønster `\b\d{2,4}\s*-?\s*[HM]\b`
+# alene 30 fund med kun 14 reelle (47 %), hvor stort set al støj var TYSKE
+# DÆKANNONCER ("205/55R16 91H", "225/50 R17 98H" -- H er dækkets
+# hastighedsindeks), plus "24H" (timer), "126 H-Kennzeichen" (tysk veteranplade)
+# og "Blackheart BH 100 H" (et guitarforstærker-HOVED). Med ankeret forsvandt
+# samtlige disse.
+VACUUM_DOMAIN_PATTERN = _p(
+    r"\b(st[øo]vsuger\w*|st[øo]vsugere\w*|dammsugar\w*|damsugar\w*|sauger\w*|"
+    r"staubsauger\w*|vacuum|suger\w*|sugare\b|stoftavskiljar\w*|absaugmobil\w*|"
+    r"sugmaskin\w*)\b"
 )
 
 # Eksplicit klasse-udsagn i selve annonceteksten ("klasse H", "støvklasse M",
@@ -1192,6 +1279,24 @@ WEAK_EVIDENCE_PATTERN = _p(
 EXPLICIT_CLASS_PATTERN = _p(
     r"\b(?:st[øo]vklasse|dust\s*class|klasse|staubklasse)\s*[:\-]?\s*([hm])\b"
 )
+
+# Den OMVENDTE ordstilling -- bogstavet FØRST -- som mønsteret ovenfor ikke
+# kan matche ("H-klasse", "H-KLASSE", "H Klasse", "H-klass", "M-klasse").
+# NYT 2026-09-29 (Opus-review): målt på 808 rigtige annoncetitler fandt den
+# 10 annoncer, og ALLE TI var ægte H/M-maskiner -- 'RONDA 40 HEPA H-KLASSE',
+# 'NUMATIC Rygstøvsuger RHB150NX H-klasse', 'Festool CTH 26 dammsugare
+# (H-klass)', 'Flex-industristøversuger VCE44-AC H-klasse' (500 kr.),
+# 'Starmix industristøvsuger – M-klasse', 'Nilfisk Attix 7 Nass-Trockensauger
+# H-Klasse Gefahrstoffe' m.fl. Ingen af dem havde nogen klasse i dag.
+#
+# HOLDT ADSKILT fra EXPLICIT_CLASS_PATTERN og IKKE bare tilføjet som en gren:
+# "<bogstav>-Klasse" er også den tyske BILserie-betegnelse. I dette korpus
+# optrådte A/B/C/E/G/S/V-Klasse (Mercedes) men aldrig M-Klasse -- den findes
+# dog (Mercedes ML), og et H-Kennzeichen-lignende sammenfald er kun et
+# tidsspørgsmål. Derfor håndhæver normalize.classify_model() et
+# støvsuger-domæne-anker på netop denne gren, præcis som
+# has_class_letter_signal() gør. Se dens kald for koblingen.
+EXPLICIT_CLASS_SUFFIX_PATTERN = _p(r"(?<![\w-])([hm])\s*[-\s]\s*(?:st[øo]v)?klass(?:e|en)?\b")
 
 # Generiske søgetermer fra specen ("H-klasse støvsuger", "sikkerhedsstøvsuger"
 # osv.) -- bruges som config.yaml's search_terms.primary/secondary, samlet

@@ -11,9 +11,13 @@ import re
 
 from .models import (
     EXPLICIT_CLASS_PATTERN,
+    EXPLICIT_CLASS_SUFFIX_PATTERN,
     HARD_REJECT_PATTERNS,
+    INDUSTRIAL_CATEGORY_PATTERN,
     KNOWN_BRANDS,
     MODEL_WHITELIST,
+    SAFETY_VACUUM_PATTERN,
+    VACUUM_DOMAIN_PATTERN,
     WEAK_EVIDENCE_PATTERN,
 )
 
@@ -162,11 +166,19 @@ def is_accessory_or_rental(text: str) -> bool:
 ACCESSORY_TITLE_PATTERN = re.compile(
     r"\b(pose[rn]?|filterpose[rn]?|st[øo]vsugerpose[rn]?|b[øo]rste[rn]?|"
     r"mundstykke[rn]?|slanges[æa]t|d[yø]se[rn]?|filterelement(?:er)?|"
-    r"kulfilter|hjuls[æa]t|adapter|bags?|nozzle|brush)\b"
+    r"kulfilter|hjuls[æa]t|bags?|nozzle|brush)\b"
     # Tyske sammensatte ord ("Filtersack", "Sicherheitsfiltersack",
     # "Ersatzfilterbeutel") har ingen mellemrum foran sack/beutel, så disse to
     # kræver INGEN venstre-\b (kun højre, som stadig sikrer ordslutning).
-    r"|s[äa]ck(?:e|en)?\b|beutel(?:n)?\b",
+    r"|s[äa]ck(?:e|en)?\b|beutel(?:n)?\b"
+    # RETTET 2026-09-29 (Opus-review): "adapter" stod med venstre-\b og ramte
+    # derfor ikke det tyske sammensatte ord i det eneste falske positive fund
+    # den nye klassebogstav-validering producerede på 808 rigtige titler:
+    # "AbsaugADAPTER für Nilfisk attix 30 auf Kappsäge Metabo KGS 254 M"
+    # (en savklinge-adapter til 179 kr., hvor "254 M" er klingens diameter i
+    # mm, ikke en støvklasse). Samme klasse af fejl som säck/beutel ovenfor,
+    # og rettet på samme måde: venstre-\b droppet, højre-\b bevaret.
+    r"|adapter(?:e[rn]?|n)?\b",
     re.I,
 )
 
@@ -218,8 +230,19 @@ def is_accessory_title(title: str) -> bool:
 # i stedet for at blive afvist som støj. Et kendt mærke bør kun beskytte
 # mod auto-afvisning når der OGSÅ er et modelnummer-agtigt tal at
 # verificere -- ikke bare en pris/watt/volt/liter-specifikation.
+# RETTET 2026-09-29 (Opus-review): det bare "m" er FJERNET fra enhedslisten.
+# Det var tænkt som "meter", men i denne kategori er et tal efterfulgt af et
+# fritstående M næsten altid STØVKLASSE M, ikke en længde. Konkret målt på
+# 808 rigtige titler: 11 indeholdt `\d+ m`, og INGEN af dem brugte m som
+# meter -- 8 var M-klasse-modelsuffikser ("Attix 33-2M", "ATTIX 40-0M PC",
+# "Attix 44-2M IC", "Hilti VC 60 M-X"), resten var "m.m." og "MH 4M".
+# Konsekvensen af fejlen var konkret og alvorlig: "Hilti VC 60 M-X" (en ægte
+# M-klasse-maskine til 6.230 kr. på blocket.se) fik strippet sit eneste
+# modelnummer ("60 M" læst som "60 meter"), mistede dermed
+# known_brand_mentioned og blev afvist som "intet identificerbart signal".
+# "mtr"/"cm"/"mm" er bevaret -- de er entydige.
 _SPEC_UNIT_PATTERN = re.compile(
-    r"\b\d{1,5}\s*(?:w(?:att)?|v(?:olt)?|l(?:iter)?|kr|stk|cm|mm|mtr|m|%|"
+    r"\b\d{1,5}\s*(?:w(?:att)?|v(?:olt)?|l(?:iter)?|kr|stk|cm|mm|mtr|%|"
     r"[åa]r|kg|bar|db|hk|rpm)\b",
     re.I,
 )
@@ -233,6 +256,76 @@ def has_model_token(text: str) -> bool:
     sælger om ud over de faste standardspørgsmål."""
     stripped = _SPEC_UNIT_PATTERN.sub(" ", text or "")
     return bool(_MODEL_TOKEN_PATTERN.search(stripped))
+
+
+# ---------------------------------------------------------------------------
+# NYT 2026-09-29 (Opus-review af intake/validering) -- KLASSEBOGSTAV-SIGNALET.
+#
+# Brugerens eget forslag ("en metode kunne fx være at søge efter H i
+# modelnavnet"), generaliseret ud over den kuraterede whitelist på samme måde
+# som models.py's ronda_h_serie/karcher_nt_h_serie allerede gør for ÉT mærke
+# ad gangen -- men her mærke-uafhængigt.
+#
+# To grene, fordi live-data viser to reelle skrivemåder:
+#   1. SUFFIKS på et modelnummer: "RONDA 80H", "BSS 608H", "VC 60 M-X",
+#      "GAS 35 H AFC", "Attix 33 H".
+#   2. FRITSTÅENDE klassebogstav: "Starmix H tør og våd støvsuger",
+#      "Asbest Sauger Sicherheitssauger H", "Starmix Vaccufix H støvsuger",
+#      "Nilfisk ATTIX 9 Industriesauger EX-Sauger Staubklasse H".
+# Gren 2 fanger en fjerdedel mere end gren 1 alene og er den eneste der finder
+# de annoncer hvor klassen står som et løsrevet bogstav uden tal.
+#
+# ANKERKRAVET ER HELE POINTEN. Målt på 808 rigtige titler:
+#   * gren 1 UDEN anker:  30 fund, 14 reelle (47 %). Al støjen var tyske
+#     dækannoncer, hvor H er dækkets HASTIGHEDSINDEKS ("205/55R16 91H",
+#     "225/50 R17 98H", "265/60 R18 110H" -- fem forskellige Mercedes-
+#     hjulsæt), plus "Motorradanhänger mieten 24H" (timer),
+#     "Mercedes-Benz 380 SEC 126 H-Kennzeichen" (tysk veteranplade) og
+#     "Topforstærker, Blackheart BH 100 H, 100 W" (et guitarforstærker-HOVED,
+#     hvor H netop betyder Head).
+#   * gren 1+2 MED anker:  31 fund, 30 reelle (97 %). Ankeret fjernede
+#     samtlige 11 hårde falske positiver uden at koste en eneste ægte maskine.
+# Det ene resterende falske fund ("Absaugadapter ... Metabo KGS 254 M", hvor
+# 254 er en savklinges diameter) lukkes af ACCESSORY_TITLE_PATTERN's
+# adapter-rettelse ovenfor, ikke her.
+#
+# ANKERET er bevidst BREDT (støvsuger-substantiv ELLER kendt mærke ELLER
+# industri-/sikkerheds-kategoriord) og ikke bare "indeholder ordet støvsuger":
+# en smallere variant der KRÆVEDE støvsuger-ordet blev også målt, og den
+# droppede 10 af de 14 ægte fund fra gren 1 -- titler som "RONDA 80H 25L",
+# "Hilti VC 60 M-X" og "RONDA 2800H Green Tech" nævner aldrig ordet støvsuger.
+_CLASS_LETTER_SUFFIX_PATTERN = re.compile(r"(?<![\w-])\d{2,4}\s*-?\s*[HM](?![\w-])")
+_CLASS_LETTER_STANDALONE_PATTERN = re.compile(r"(?<![\w-])[HM](?![\w-])")
+
+
+def in_vacuum_domain(text: str) -> bool:
+    """Ankeret for has_class_letter_signal(): handler teksten overhovedet om
+    en støvsuger, et kendt sikkerhedsstøvsuger-mærke eller en professionel
+    våd-/tørsuger-kategori? Aldrig evidens i sig selv."""
+    text = text or ""
+    return bool(
+        VACUUM_DOMAIN_PATTERN.search(text)
+        or INDUSTRIAL_CATEGORY_PATTERN.search(text)
+        or SAFETY_VACUUM_PATTERN.search(text)
+        or _KNOWN_BRAND_PATTERN.search(text)
+    )
+
+
+def has_class_letter_signal(text: str) -> bool:
+    """True hvis teksten bærer et klassebogstav (H/M) der plausibelt er
+    MASKINENS støvklasse -- se den lange kommentar ovenfor for de målte
+    signal/støj-tal og for hvorfor ankerkravet ikke kan undværes.
+
+    BEMÆRK at dette IKKE er bevis for klassen (klasse_kilde sættes ikke): det
+    er et KANDIDAT-signal, der siger "her er noget konkret at bede sælgeren
+    bekræfte på typeskiltet", til forskel fra "Bosch støvsuger", hvor der
+    intet er."""
+    text = text or ""
+    if not (
+        _CLASS_LETTER_SUFFIX_PATTERN.search(text) or _CLASS_LETTER_STANDALONE_PATTERN.search(text)
+    ):
+        return False
+    return in_vacuum_domain(text)
 
 
 def classify_model(text: str) -> dict:
@@ -282,7 +375,15 @@ def classify_model(text: str) -> dict:
     # Intet model-match -- prøv eksplicit klasse-udsagn i selve teksten
     # ("støvklasse H"), svagere end et modelmatch (klasse_kilde=annoncetekst,
     # ikke modelnavn) men stærkere end ingenting.
+    #
+    # Den omvendte ordstilling ("H-klasse") kræver BEVIDST et
+    # støvsuger-domæne-anker, fordi "<bogstav>-Klasse" også er den tyske
+    # bilserie-betegnelse -- se EXPLICIT_CLASS_SUFFIX_PATTERN's kommentar i
+    # models.py. Uden ankeret ville en "Mercedes M-Klasse"-annonce blive
+    # klassificeret som en M-klasse sikkerhedsstøvsuger.
     m = EXPLICIT_CLASS_PATTERN.search(text)
+    if m is None and in_vacuum_domain(text):
+        m = EXPLICIT_CLASS_SUFFIX_PATTERN.search(text)
     if m:
         return {
             "model_key": None,
@@ -340,6 +441,17 @@ def extract_soft_signals(text: str) -> dict:
         "completeness_negative": bool(COMPLETENESS_NEGATIVE_PATTERN.search(text)),
         "weak_evidence_only": bool(WEAK_EVIDENCE_PATTERN.search(text)),
         "known_brand_mentioned": mentions_known_brand(text) and has_model_token(text),
+        # NYE 2026-09-29 (Opus-review af intake/validering): tre uafhængige
+        # kandidat-signaler der tilsammen erstatter den ENE binære port
+        # ovenfor (known_brand_mentioned) med en rangordnet stige i
+        # classify.py. maerke_naevnt er bevidst det RÅ mærke-match UDEN
+        # has_model_token-konjunktionen -- det er netop den konjunktion
+        # brugeren har bedt om at kunne løsne, og den kan ikke løsnes hvis
+        # feltet kun findes i sin sammensatte form.
+        "klassebogstav_signal": has_class_letter_signal(text),
+        "sikkerhedssuger_vokabular": bool(SAFETY_VACUUM_PATTERN.search(text)),
+        "industri_kategori": bool(INDUSTRIAL_CATEGORY_PATTERN.search(text)),
+        "maerke_naevnt": mentions_known_brand(text),
         "corded_mentioned": bool(CORDED_PATTERN.search(text)),
         "battery_mentioned": bool(BATTERY_PATTERN.search(text)),
         "medfoelger": _extract_accessories(text),

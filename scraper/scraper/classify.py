@@ -73,6 +73,135 @@ def _price_category(dust_class: str | None, container_l: float | None) -> str | 
     return None
 
 
+# ---------------------------------------------------------------------------
+# KANDIDAT-STIGEN (ny 2026-09-29, Opus-review af intake/validering).
+#
+# Brugerens opdrag: "For alle datakilder bør vi ved indtag løsne kravet om
+# kendte mærker uden modelnummer ... og så skal vi bygge vores egen
+# datavalidering i vores ende. Få Opus til at foreslå en række metoder og
+# teste hvad der giver resultater."
+#
+# Den gamle mekanik var ÉN binær port: known_brand_mentioned (= kendt mærke
+# NÆVNT **og** et modelnummer-agtigt tal, se normalize.has_model_token).
+# Bestod annoncen ikke den, blev den afvist. Porten blev indført bevidst
+# 2026-09-20 efter at brugeren manuelt diskvalificerede "Bosch støvsuger"/
+# "Nilfisk støvsuger" -- annoncer uden noget som helst at verificere -- og
+# den skal derfor IKKE bare slås fra. Den erstattes i stedet af en stige med
+# fire trin, hvor det gamle trin er bevaret som trin 3.
+#
+# Alle fire trin er målt mod 808 RIGTIGE annoncetitler: 707 live-rækker
+# hentet fra Turso via Worker-API'et, plus 101 friske fund fra brede
+# probe-søgninger mod klaravik.dk/auktionshuset.dk/dba.dk/retrade.eu.
+# Nøgletallet er de 462 live-rækker der i dag er afvist med præcis
+# "intet identificerbart signal" -- det er den pulje en løsning skal hente
+# reelle fund op af UDEN at hente resten med.
+#
+#  Trin 1  sikkerhedssuger-vokabular  ->  3 af de 462, ALLE TRE reelle:
+#          'Asbestsauger' (1.119 kr.), 'Bosch Asbest-Sauger
+#          Industriestaubsauger' (2.798 kr.), 'Asbest Sauger
+#          Sicherheitssauger H' (3.730 kr.). Alle tre er tyske; vi SØGTE
+#          aktivt efter dem ("Asbestsauger" er et af vores syv primære
+#          søgeord) og afviste dem så selv.
+#  Trin 2  klassebogstav + anker      ->  2 af de 462 ('Starmix H tør og våd
+#          støvsuger' 1.500 kr., 'Baier BSS 608H våd-/tørsuger 1200W'
+#          4.300 kr. -- sidstnævnte er endda en whitelistet model), og 12 af
+#          de 101 friske probe-fund (seks RONDA H-maskiner, 'Starmix ISC
+#          1625 H', 'Bona støvsuger klasse H . Dc 25', 'Starmix Vaccufix H').
+#          Målt præcision på hele korpus: 30 reelle ud af 31 fund (97 %).
+#  Trin 3  mærke + modelnummer        ->  uændret gammel opførsel.
+#  Trin 4  mærke + industri-kategori  ->  det egentlige "løsn kravet".
+#          23 fund på hele korpus, heraf ~10 reelle kandidater, INKLUSIVE
+#          brugerens eget eksempel: Klaravik-annoncen 'Industristøvsugere
+#          Electrostar Starmix IS 2 styk' (2.200 kr.), som ikke rammes af
+#          nogen af de tre trin ovenfor (intet klassebogstav, intet
+#          modelnummer, intet asbest-ord).
+#
+# TO VÆRN PÅ TRIN 4, fordi det er det svageste og bredeste:
+#  (a) Det kræver INDUSTRIAL_CATEGORY_PATTERN ("industristøvsuger",
+#      "Industriesauger", "Werkstattsauger", "våd-/tørsuger", ...) og IKKE
+#      det bare "støvsuger"/"dammsugare". Den brede variant blev også målt:
+#      38 fund hvoraf kun ~3 var relevante -- resten var præcis den støj
+#      porten oprindelig blev bygget for ('Bosch dammsugare rosa med
+#      teleskoprör', 'Nilfisk Compact dammsugare röd', 'Bosch støvsuger',
+#      'Nilfisk støvsuger'). Den smalle variant giver ~10 af 23.
+#  (b) En PRISBUND (config: minimumspris_svagt_signal_dkk). Målt på de 23
+#      fund fra trin 4 ligger samtlige reelle kandidater på 1.050 kr. og
+#      opefter, mens fem af de seks støj-fund ligger under 800 kr.
+#      ('Nilfisk industristøvsuger gammel model' 75 kr., 'Retro Nilfisk GSD
+#      støvsuger industristøvsuger' 100 kr., 'Nilfisk GSD industristøvsuger
+#      grå' 350 kr., 'Numatic industristøvsuger med vogn og rør' 450 kr.,
+#      'Kärcher Professional våt- och torrdammsugare' 630 kr.). Bunden er
+#      sat til samme beløb som filter_replacement_estimate_dkk, og den
+#      begrundelse er selvbærende: en maskine der koster mindre end det
+#      H-filterelement man er NØDT til at sætte i den, er ikke en seriøs
+#      kandidat. Modellen med den laveste kendte nypris i models.py (Metabo
+#      ASA 30 H PC, 2.349 kr.) understøtter samme størrelsesorden.
+#      FEJLTILSTAND, bevidst accepteret: bunden ville afvise et ægte røverkøb
+#      som 'Flex-industristøversuger VCE44-AC H-klasse' til 500 kr. (set i
+#      live-data) -- men netop den annonce har et klassebogstav og fanges
+#      derfor allerede af trin 2, hvor prisbunden IKKE gælder. Bunden rammer
+#      kun det svageste trin.
+#
+# BEVIDST IKKE BYGGET (metoder der blev testet og målt UTILSTRÆKKELIGE på
+# netop disse data -- se README for den fulde gennemgang):
+#  * Watt/vægt-heuristik: husholdningsstøvsugere i korpus'et kører 1.300-2.000
+#    W ('1300w bil dammsugare', 'Siemens dammsugare 1800W') -- præcis samme
+#    interval som industrimaskinerne. Adskiller ikke.
+#  * Spec-tæthed (flow/filterklasse/volt sammen): 4 fund på 808 titler, og et
+#    af dem var en askestøvsuger. Metoden forudsætter en BESKRIVELSE, og
+#    ingen af de otte kilder leverer en -- alle sources/*.py sætter
+#    `"description": ""`.
+#  * Beholdervolumen + industriord: 5 fund på 808, ingen diskriminerende
+#    kraft (titler oplyser sjældent liter).
+#  * Kilde-leveret kategori/brødkrumme: ingen af de otte kilder opsamler den
+#    i dag; det kræver ny scraping-kode pr. kilde, ikke en filter-ændring.
+# ---------------------------------------------------------------------------
+_KANDIDAT_NOTER = {
+    "sikkerhedssuger-vokabular": (
+        "annoncen markedsfører maskinen som asbest-/sikkerhedssuger, men intet "
+        "modelnavn matcher models.py -- bed om billede af typeskiltet (asbestbrug "
+        "forudsætter H-klasse, så påstanden er kontrollerbar)"
+    ),
+    "klassebogstav": (
+        "et klassebogstav (H/M) optræder i annoncen uden at et modelnavn kunne "
+        "bekræftes -- bed om billede af typeskiltet, så bogstavet kan verificeres "
+        "på maskinen i stedet for i teksten"
+    ),
+    "mærke+industrikategori": (
+        "kendt sikkerhedsstøvsuger-mærke nævnt sammen med en industri-/"
+        "byggestøvsuger-kategori, men HVERKEN modelnummer eller klassebogstav i "
+        "teksten -- svageste kandidat-niveau, bed om typeskilt før alt andet"
+    ),
+}
+
+
+def _kandidat_signal(listing: dict, config: dict) -> tuple[str | None, str | None]:
+    """Returnerer (signalnavn, mangler_info-note) for en annonce UDEN bekræftet
+    støvklasse -- se den lange kommentar ovenfor for de målte tal bag hvert
+    trin. (None, None) betyder "ingen kandidat-evidens overhovedet", altså
+    afvisning."""
+    if listing.get("sikkerhedssuger_vokabular"):
+        return "sikkerhedssuger-vokabular", _KANDIDAT_NOTER["sikkerhedssuger-vokabular"]
+    if listing.get("klassebogstav_signal"):
+        return "klassebogstav", _KANDIDAT_NOTER["klassebogstav"]
+    if listing.get("known_brand_mentioned"):
+        # Uændret gammel opførsel -- noten sættes af classify() selv længere
+        # nede (den formulering brugeren allerede kender).
+        return "mærke+modelnummer", None
+    if listing.get("maerke_naevnt") and listing.get("industri_kategori"):
+        floor = config.get(
+            "minimumspris_svagt_signal_dkk", config.get("filter_replacement_estimate_dkk", 800)
+        )
+        price = listing.get("landed_price_dkk")
+        # En pris på None er typisk en auktion uden bud endnu (klaravik/
+        # auktionshuset/retrade) -- den må ikke tolkes som "gratis, altså støj",
+        # så prisbunden springes over og annoncen beholdes som kandidat.
+        if price is not None and price < floor:
+            return None, None
+        return "mærke+industrikategori", _KANDIDAT_NOTER["mærke+industrikategori"]
+    return None, None
+
+
 def compute_score(listing: dict) -> tuple[int, list[str]]:
     """Returnerer (score, forklaringer) -- forklaringer er til
     classification_method/audit, ikke vist direkte til brugeren."""
@@ -179,29 +308,33 @@ def classify(listing: dict, config: dict) -> dict:
             method=f"hård afvisning: {listing.get('reject_reason')}",
         )
 
-    known_brand_mentioned = listing.get("known_brand_mentioned", False)
-    if dust_class in (None, "ukendt") and weak_evidence_only and not known_brand_mentioned:
-        return _result(
-            "afvis",
-            score,
-            reasons,
-            [
-                "kun filter-/markedsførings-termer (HEPA/professionel/industri) -- "
-                "ingen dokumentation for MASKINENS støvklasse, jf. spec"
-            ],
-            method="afvist: kun svag evidens (filter-marketing, ikke maskinklasse)",
-        )
-
-    # KRITISK FUND (bruger diskvalificerede 10 rigtige DBA-fund manuelt
-    # 2026-09-19, primært generiske "Støvsuger"/"Lille støvsuger"-annoncer
-    # fundet via det brede "sikkerhedsstøvsuger"-søgeord): en annonce med
-    # ABSOLUT INTET signal -- intet mærke, ingen klasse-omtale, ikke engang
-    # svag markedsførings-evidens -- er reelt STØJ fra en bred søgning, ikke
-    # en kandidat der fortjener "se nærmere". Bredere end weak_evidence_only-
-    # tjekket ovenfor (som kræver eksplicit HEPA/professionel-tekst): her er
-    # der ingenting overhovedet at spørge sælger om ud over de faste 6
-    # standardspørgsmål, hvilket i praksis ikke er brugbart.
-    if dust_class in (None, "ukendt") and not known_brand_mentioned and not weak_evidence_only:
+    # Kandidat-stigen gælder KUN annoncer uden bekræftet støvklasse -- er
+    # klassen allerede kendt (modelmatch eller eksplicit klasse-udsagn), er
+    # der ikke noget at rangordne, og stigens noter ville være direkte
+    # misvisende ("intet modelnavn matcher models.py").
+    kandidat_signal, kandidat_note = (
+        _kandidat_signal(listing, config) if dust_class in (None, "ukendt") else (None, None)
+    )
+    if dust_class in (None, "ukendt") and kandidat_signal is None:
+        if weak_evidence_only:
+            return _result(
+                "afvis",
+                score,
+                reasons,
+                [
+                    "kun filter-/markedsførings-termer (HEPA/professionel/industri) -- "
+                    "ingen dokumentation for MASKINENS støvklasse, jf. spec"
+                ],
+                method="afvist: kun svag evidens (filter-marketing, ikke maskinklasse)",
+            )
+        # KRITISK FUND (bruger diskvalificerede 10 rigtige DBA-fund manuelt
+        # 2026-09-19, primært generiske "Støvsuger"/"Lille støvsuger"-annoncer
+        # fundet via det brede "sikkerhedsstøvsuger"-søgeord): en annonce med
+        # ABSOLUT INTET signal -- intet mærke, ingen klasse-omtale, ikke engang
+        # svag markedsførings-evidens -- er reelt STØJ fra en bred søgning, ikke
+        # en kandidat der fortjener "se nærmere". Her er der ingenting
+        # overhovedet at spørge sælger om ud over de faste standardspørgsmål,
+        # hvilket i praksis ikke er brugbart.
         return _result(
             "afvis",
             score,
@@ -209,6 +342,8 @@ def classify(listing: dict, config: dict) -> dict:
             ["intet mærke, model eller klasse-omtale -- sandsynligvis støj fra bred søgning"],
             method="afvist: intet identificerbart signal",
         )
+    if kandidat_note:
+        mangler_info.append(kandidat_note)
 
     if completeness_negative:
         return _result(
@@ -251,13 +386,13 @@ def classify(listing: dict, config: dict) -> dict:
                 method="afvist: over 70%-af-nypris-loftet",
             )
 
-    if dust_class in (None, "ukendt") and known_brand_mentioned:
+    if dust_class in (None, "ukendt") and kandidat_signal == "mærke+modelnummer":
         mangler_info.append(
             "kendt sikkerhedsstøvsuger-mærke nævnt, men modelnummer matcher ingen kendt "
             "H/M-model -- bed sælger om billede af typeskiltet (kan være en model.py "
             "endnu ikke dækker)"
         )
-    elif dust_class in (None, "ukendt"):
+    elif dust_class in (None, "ukendt") and not kandidat_note:
         mangler_info.append("støvklasse (H/M) kan ikke bekræftes ud fra annoncens tekst")
     elif klasse_kilde == "annoncetekst":
         mangler_info.append(
@@ -335,13 +470,14 @@ def classify(listing: dict, config: dict) -> dict:
             "køb nu", score, reasons, mangler_info, method="godkendt: alle hårde krav + god pris"
         )
 
-    return _result(
-        "se nærmere",
-        score,
-        reasons,
-        mangler_info,
-        method="se nærmere: mangler verifikation eller pris over 'god handel'",
-    )
+    # Kandidat-trinnet navngives i classification_method (audit-feltet, samme
+    # rolle som "hård afvisning: <mønster>") -- uden det kan brugeren ikke se
+    # HVILKEN af de fire regler der lukkede en given annonce ind, og dermed
+    # heller ikke afgøre om et enkelt trin skal strammes igen.
+    method = "se nærmere: mangler verifikation eller pris over 'god handel'"
+    if kandidat_signal is not None:
+        method += f" (kandidat-signal: {kandidat_signal})"
+    return _result("se nærmere", score, reasons, mangler_info, method=method)
 
 
 def _result(

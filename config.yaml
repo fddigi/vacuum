@@ -47,6 +47,31 @@ search_terms:
     - "Sicherheitssauger Klasse H"
     - "Asbestsauger"
     - "klass H"
+    # NYE 2026-09-29 (Opus-review af intake): ÉT-ORDS kategori-substantiver.
+    # Målt live samme dag mod de faktiske markedspladser:
+    #  * "industristøvsuger" gav 53 træf på dba.dk -- klart det mest
+    #    produktive enkeltord overhovedet, med bl.a. "Hilti VC 20H-X",
+    #    "RONDA 80H 25", "Bygma ISC H-163 Safe" og "Bosch GAS 35" -- og det
+    #    var samtidig ét af kun TO ord der overhovedet fandt noget på
+    #    klaravik.dk. Det stod ikke i listen i forvejen; de syv ord ovenfor er
+    #    enten flerords-fraser eller sjældne sammensætninger.
+    #  * "Sicherheitssauger" alene er strengt bredere end
+    #    "Sicherheitssauger Klasse H" ovenfor (som kræver tre ord på rad) og
+    #    rammer kleinanzeigen-annoncer som "Asbest Sauger Sicherheitssauger H"
+    #    og "NILFISK VHS010 EX Sicherheitssauger H Klasse".
+    #  * "Industriesauger"/"industridammsugare" er de tyske/svenske former af
+    #    det samme; begge optræder i rigtige, allerede-scrapede annoncer
+    #    ("Werkstattsauger Starmix ISP iPulse ARH-1635 Staubklasse H",
+    #    "Nilfisk industridammsugare med slang"), men var aldrig søgt efter.
+    # Bevidst IKKE tilføjet globalt: bare mærkenavne ("Nilfisk", "Starmix").
+    # Live-målt gav "Nilfisk" 54 træf på dba.dk med NUL H-klasse-maskiner
+    # (højtryksrensere, vinduespudsere, Buddy/One/Elite-husholdnings-
+    # støvsugere) og 5 træf på klaravik.dk, også nul relevante. Se
+    # per_source nedenfor for den kildespecifikke undtagelse.
+    - "industristøvsuger"
+    - "Industriesauger"
+    - "industridammsugare"
+    - "Sicherheitssauger"
   # Modelwhitelistens ~85 mærke+model-kombinationer, søgt hver for sig (spec:
   # "søg hver enkelt separat"). Genereret fra scraper/scraper/models.py --
   # hold denne liste i sync hvis models.py's whitelist ændres (der er bevidst
@@ -140,6 +165,38 @@ search_terms:
     # M-annonce der matcher et af de øvrige H-fokuserede søgeord vil stadig
     # blive korrekt klassificeret som M, blot ikke aktivt opsøgt.
 
+  # KILDESPECIFIKKE SUPPLEMENTER (nyt 2026-09-29, Opus-review af intake).
+  # Søgeordene har indtil nu været fuldstændig globale -- main.py gav den
+  # samme flade liste til alle otte kilder -- og to tidligere reviews flagede
+  # at det blokerede for at hjælpe auktionskilderne uden at drukne de kilder
+  # der allerede fungerer. Mekanikken ligger i search_terms.config_for_source()
+  # (se dens docstring for de fulde live-målinger); termerne her lægges oven i
+  # `primary` for NETOP den kilde og seedes ALDRIG til Turso's globale
+  # search_terms-tabel.
+  #
+  # Kun klaravik og auktionshuset får noget. Begrundelse, live-målt 2026-09-29:
+  #  * klaravik.dk: 0 træf på 'sikkerhedsstøvsuger', 0 på 'Nilfisk Attix
+  #    33-2H' (et af vores 63 produktionssøgeord) -- men 1 træf på det bare
+  #    'støvsuger', og det ene træf er netop den annonce brugeren efterlyste
+  #    ("Industristøvsugere Electrostar Starmix IS 2 styk", 2.200 kr.).
+  #    Klaravik matcher på DELSTRENG, så ét kort ord slår enhver frase.
+  #  * auktionshuset.dk: 31 lots på det bare 'støvsuger' mod en håndfuld på
+  #    fraserne. Lot-titlerne er "<Kategori> <MÆRKE> <model>"
+  #    ("Industristøvsuger NILFISK ALTO AERO 20-21") og rammer derfor sjældent
+  #    en flerords-frase.
+  #  * dba/blocket/kleinanzeigen får bevidst INTET: de fungerer allerede med
+  #    de specifikke modelfraser, og et bart 'støvsuger'/'Nilfisk' ville koste
+  #    ~50 irrelevante annoncer pr. term af playwright.max_pages_total.
+  #  * retrade.eu får bevidst INTET: seks brede termer gav tilsammen ÉT træf
+  #    (fejemaskinen 'Nilfisk City Ranger 3500'), og 0 på både 'støvsuger' og
+  #    'dammsugare'. Kilden har intet udbud i kategorien -- bredere søgning
+  #    kan ikke finde noget der ikke er der.
+  per_source:
+    klaravik:
+      - "støvsuger"
+    auktionshuset:
+      - "støvsuger"
+
 vinted:
   max_results_per_term: 20
   timeout_s: 20
@@ -195,6 +252,18 @@ import_costs:
 # kr. oveni til nyt H-filterelement PÅ ENHVER BRUGT MASKINE").
 filter_replacement_estimate_dkk: 800
 
+# Prisbund for det SVAGESTE kandidat-signal (kendt mærke + industri-kategori,
+# men hverken modelnummer eller klassebogstav) -- se classify.py's lange
+# kommentar over _kandidat_signal() for målingerne. Gælder BEVIDST kun det ene
+# trin: en annonce med et klassebogstav eller et modelnummer beholdes uanset
+# pris, så et ægte røverkøb (fx "Flex-industristøversuger VCE44-AC H-klasse"
+# til 500 kr., set i live-data) aldrig tabes. Sat til samme beløb som
+# filter_replacement_estimate_dkk ovenfor, fordi begrundelsen er den samme:
+# en maskine der koster mindre end det H-filterelement man er nødt til at
+# sætte i den, er ikke en seriøs kandidat. En pris på None (auktion uden bud
+# endnu) rammes ikke af bunden.
+minimumspris_svagt_signal_dkk: 800
+
 # PRISLOFTER (spec, DKK, inkl. evt. transport + filterestimat ovenfor).
 # koeb_max = aldrig køb over denne pris. god_handel_max = under denne pris
 # kan annoncen (sammen med opfyldte hårde krav) blive "køb nu" uden yderligere
@@ -217,7 +286,8 @@ playwright:
   min_delay_s: 3
   max_delay_s: 8
   max_pages_per_term: 3
-  # 64 søgetermer (7 generiske + 57 modelspecifikke, opdateret 2026-09-29) på
+  # 68 søgetermer (11 generiske + 57 modelspecifikke, opdateret 2026-09-29;
+  # klaravik+auktionshuset får ét ekstra kildespecifikt ord, se per_source) på
   # tværs af 6 Playwright-baserede kilder -- sat højt nok til at nå hele
   # listen inden for ét launchd-interval (6 timer), se main.py's
   # SOURCE_TIMEOUT_OVERRIDES for Kleinanzeigens separate watchdog-forlængelse.
