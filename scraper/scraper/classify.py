@@ -33,6 +33,16 @@ SELLER_QUESTIONS = [
     "Giver flowalarmen lyd, når slangen dækkes til?",
     "Har maskinen kørt asbest?",
     "Medfølger der sikkerhedsfilterposer?",
+    # Ny 2026-09-29 (stovsuger-modeloversigt2.md, afsnit 7A): asbestmærkningen
+    # er SKU-specifik, ikke serie-bred. Samme modelnavn kan dække både en
+    # asbestmærket og en umærket varenummer-variant (Nilfisk Attix 33-2H: kun
+    # 107412183 "ASBES" og 107419012 "BG BAU ASBEST" er mærkede, mens
+    # 107412184 IKKE er det) -- og producentens egen serietekst om
+    # asbestcertificering står også på maskiner der IKKE må køre asbest.
+    # Varenummeret er derfor det eneste, sælgeren kan oplyse, som faktisk
+    # afgør spørgsmålet.
+    "Hvilket varenummer/art.nr. står der på typeskiltet? (asbestmærkningen er "
+    "SKU-specifik, ikke serie-bred -- samme modelnavn findes både mærket og umærket)",
 ]
 
 _PRICE_CATEGORY_COMPACT_H = "kompakt_h"
@@ -44,7 +54,19 @@ def _price_category(dust_class: str | None, container_l: float | None) -> str | 
     if dust_class == "M":
         return _PRICE_CATEGORY_M
     if dust_class == "H" and container_l is not None:
-        if 25 <= container_l <= 35:
+        # RETTET 2026-09-29: den øvre grænse for "kompakt" var 35 l, og specens
+        # to intervaller (25-35 og 40-75) efterlod derfor et HUL på 36-39 l.
+        # Hullet var tomt indtil stovsuger-modeloversigt2.md's afsnit 7A/7C
+        # rettede to modellers volumen til netop det interval: Nilfisk Attix
+        # 44-2H IC (44 -> 37 l) og Hilti VC 40H-X (30 -> 36 l). Uden denne
+        # rettelse ville begge falde ud i category=None, dvs. HVERKEN kunne
+        # afvises på prisloft ELLER nogensinde blive "køb nu" -- en maskine
+        # ville stille miste sin prisport, fordi dens volumen blev mere
+        # korrekt. Hullet lukkes opad mod "kompakt", ikke nedad mod "stor",
+        # fordi kompakt-kategorien har det LAVESTE købsloft (3.500 vs. 5.000
+        # kr.) -- dvs. det konservative valg, jf. husets linje om hellere at
+        # afvise for meget end at godkende for meget.
+        if 25 <= container_l < 40:
             return _PRICE_CATEGORY_COMPACT_H
         if 40 <= container_l <= 75:
             return _PRICE_CATEGORY_LARGE_H
@@ -57,9 +79,28 @@ def compute_score(listing: dict) -> tuple[int, list[str]]:
     score = 0
     reasons: list[str] = []
 
-    if listing.get("asbestos_approved") is True or listing.get("asbest_godkendt_i_tekst"):
+    # RETTET 2026-09-29 (stovsuger-modeloversigt2.md, afsnit 7A): tidligere gav
+    # asbestos_approved=True OG et rent tekst-udsagn ("asbestgodkendt", "TRGS
+    # 519") det SAMME +3. Version 3 viser hvorfor det er forkert: fabrikantens
+    # egen certificerings-sætning er SERIETEKST og står også på maskiner der
+    # ikke må køre asbest (ATTIX 33-2M PC), så en sælger der afskriver
+    # produktsiden kan skrive "asbestgodkendt" om en M-maskine i god tro.
+    # Tre niveauer nu, og kun ÉT udløses (elif), så intet tælles dobbelt:
+    #   1. model-niveau (models.py har bevis for netop denne model)  -> +3
+    #   2. SKU-specifik mærkning i annonceteksten (ASBES/BG BAU/varenr.) -> +3
+    #   3. sælgerens egen, ukvalificerede påstand                     -> +1
+    if listing.get("asbestos_approved") is True:
         score += 3
-        reasons.append("+3 asbestgodkendelse")
+        reasons.append("+3 asbestgodkendelse bekræftet på modelniveau")
+    elif listing.get("asbest_sku_maerkning"):
+        score += 3
+        reasons.append("+3 SKU-specifik asbestmærkning i annoncetekst (ASBES/BG BAU/varenr.)")
+    elif listing.get("asbest_godkendt_i_tekst"):
+        score += 1
+        reasons.append(
+            "+1 sælger hævder asbestgodkendelse (kun annoncetekst -- kan være "
+            "afskrevet serietekst, jf. stovsuger-modeloversigt2.md afsnit 7A)"
+        )
     if listing.get("filterrensning") == "automatisk":
         score += 3
         reasons.append("+3 automatisk/semiautomatisk filterrensning")
@@ -224,6 +265,25 @@ def classify(listing: dict, config: dict) -> dict:
         )
     if dust_class == "M" and listing.get("asbestos_approved") is not True:
         mangler_info.append("M-klasse: asbest er IKKE bekræftet udelukket for denne model")
+    # Ny 2026-09-29 (stovsuger-modeloversigt2.md, afsnit 7A): den konkrete fælde
+    # version 3 afdækker -- annoncen PÅSTÅR asbestgodkendelse, men models.py kan
+    # ikke bekræfte det for netop den model, og der er ingen SKU-specifik
+    # mærkning i teksten. Det er præcis det mønster der opstår når en sælger
+    # (eller en forhandler) afskriver fabrikantens serietekst. Bevidst SNÆVER:
+    # den udløses KUN når påstanden faktisk står i annoncen, så den ikke
+    # oversvømmer enhver almindelig H-annonce med støj (og dermed i praksis
+    # afskaffer "køb nu" for alle andre mærker end Nilfisk/Flex).
+    if (
+        listing.get("asbestos_approved") is not True
+        and listing.get("asbest_godkendt_i_tekst")
+        and not listing.get("asbest_sku_maerkning")
+    ):
+        mangler_info.append(
+            "annoncen påstår asbestgodkendelse, men den kan ikke bekræftes for denne "
+            "model -- fabrikanternes egen certificeringstekst er ofte SERIETEKST og "
+            "står også på maskiner der ikke må køre asbest. Bed om varenummer/"
+            "art.nr. på typeskiltet"
+        )
     if battery:
         mangler_info.append(
             "batterimaskine -- spec: kun sekundært fund, kræver 230V/ledning som hovedregel"

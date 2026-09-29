@@ -119,7 +119,10 @@ const PRIORITY_3_STARS = [
   "ronda_h_serie",
   "starmix_isc_h1225_asbest",
 ];
-const PRIORITY_2_STARS = ["nilfisk_aero_21h", "nilfisk_aero_26_2h_pc"];
+// "baier_bss608h" tilføjet 2026-09-29 (stovsuger-modeloversigt2.md, version 3,
+// afsnit 5 + 7A): ★★ og ikke ★★★, fordi modellens egen række i afsnit 7A's
+// tabel har "Sikkerhedspose: ikke fundet" -- se models.py's baier_bss608h-note.
+const PRIORITY_2_STARS = ["baier_bss608h", "nilfisk_aero_21h", "nilfisk_aero_26_2h_pc"];
 const PRIORITY_1_STAR = [
   "bosch_gas35h_afc",
   "bygma_isc_h163_safe",

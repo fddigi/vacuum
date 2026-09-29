@@ -74,6 +74,11 @@ def test_price_between_god_handel_and_koeb_is_se_naermere():
         "Giver flowalarmen lyd, når slangen dækkes til?",
         "Har maskinen kørt asbest?",
         "Medfølger der sikkerhedsfilterposer?",
+        # Nyt spørgsmål 2026-09-29 (stovsuger-modeloversigt2.md, afsnit 7A):
+        # asbestmærkningen er SKU-specifik, ikke serie-bred, så varenummeret
+        # er det eneste sælgeren kan oplyse som faktisk afgør spørgsmålet.
+        "Hvilket varenummer/art.nr. står der på typeskiltet? (asbestmærkningen er "
+        "SKU-specifik, ikke serie-bred -- samme modelnavn findes både mærket og umærket)",
     ]
 
 
@@ -238,3 +243,81 @@ def test_filter_estimate_skipped_for_unused_machine_but_not_used_one():
     used_result = classify(used, TEST_CONFIG)
     assert unused_result["vurdering"] == "køb nu"
     assert used_result["vurdering"] == "se nærmere"
+
+
+# ---------------------------------------------------------------------------
+# stovsuger-modeloversigt2.md (version 3, 2026-09-29), afsnit 7A -- "serietekst-
+# fælden". Se compute_score()'s kommentar og models.py's docstring.
+# ---------------------------------------------------------------------------
+
+
+def test_seller_asbestos_claim_alone_scores_lower_than_real_evidence():
+    """Tre niveauer af asbest-evidens, og kun ÉT tælles:
+    modelniveau (+3) > SKU-mærkning i teksten (+3) > sælgerpåstand (+1).
+    Version 1-2 gav sælgerpåstanden samme +3 som et modelbevis -- netop den
+    ligestilling er det, afsnit 7A viser er forkert (fabrikantens egen
+    certificeringssætning er serietekst og står også på M-maskiner)."""
+    claim_only = _listing(
+        "Nilfisk Attix 33-2H IC sælges",
+        "Asbestgodkendt ifølge producentens hjemmeside, pæn stand",
+        1500,
+    )
+    assert claim_only["asbestos_approved"] is None
+    assert claim_only["asbest_godkendt_i_tekst"] is True
+    assert claim_only["asbest_sku_maerkning"] is False
+    claim_result = classify(claim_only, TEST_CONFIG)
+    assert any("+1 sælger hævder" in r for r in claim_result["score_reasons"]), claim_result
+
+    sku_marked = _listing(
+        "Nilfisk Attix 33-2H PC ASBES sælges",
+        "Varenr. 107412183, pæn stand",
+        1500,
+    )
+    assert sku_marked["asbest_sku_maerkning"] is True
+    sku_result = classify(sku_marked, TEST_CONFIG)
+    assert any("+3 SKU-specifik" in r for r in sku_result["score_reasons"]), sku_result
+    assert sku_result["score"] > claim_result["score"]
+
+    # Og en model med bevis på MODELniveau får stadig den fulde +3, uden at
+    # den også kan tælle et af de to tekst-signaler oveni (elif-kæden).
+    model_level = _listing("Flex VCE 44 H AC, asbestgodkendt", "Pæn stand", 1500)
+    assert model_level["asbestos_approved"] is True
+    model_result = classify(model_level, TEST_CONFIG)
+    assert sum("asbest" in r.lower() for r in model_result["score_reasons"]) == 1
+
+
+def test_unbacked_asbestos_claim_adds_varenummer_mangler_info():
+    """Den konkrete fælde: annoncen påstår asbestgodkendelse, models.py kan
+    ikke bekræfte det, og der er ingen SKU-mærkning -- præcis mønsteret når
+    en sælger afskriver fabrikantens serietekst."""
+    listing = _listing(
+        "Kärcher NT 35/1 Tact Te H sælges",
+        "Asbestgodkendt, TRGS 519, pæn stand",
+        1500,
+    )
+    result = classify(listing, TEST_CONFIG)
+    assert any("SERIETEKST" in m for m in result["mangler_info"]), result
+    assert any("varenummer" in m for m in result["mangler_info"]), result
+
+    # Snævert afgrænset: en helt almindelig H-annonce UDEN asbestpåstand må
+    # ikke få noten (ellers ville "køb nu" reelt forsvinde for alle mærker
+    # uden for brand-defaulten).
+    plain = _listing("Kärcher NT 35/1 Tact Te H sælges", "Pæn stand", 1500)
+    assert not any("SERIETEKST" in m for m in classify(plain, TEST_CONFIG)["mangler_info"])
+
+
+def test_corrected_container_volumes_still_land_in_a_price_band():
+    """Regression for hullet mellem specens to prisloft-intervaller (25-35 og
+    40-75 l): efter afsnit 7A/7C's volumen-rettelser ligger Attix 44-2H (37 l)
+    og Hilti VC 40H-X (36 l) i 36-39 l. Uden den udvidede kompakt-grænse ville
+    de miste deres prisport helt (category=None)."""
+    # 4.000 + 800 kr. filterestimat = 4.800 kr.: OVER kompakt_h's koeb_max
+    # (3.500) men UNDER stor_h's (5.000). Prisen skelner derfor de tre mulige
+    # udfald fra hinanden -- "afvis" beviser at 36/37 l lander i kompakt_h, og
+    # ikke i stor_h eller (som før rettelsen) helt uden for et interval.
+    for title in ["Nilfisk Attix 44-2H IC sælges", "Hilti VC 40H-X sælges"]:
+        listing = _listing(title, "Pæn stand", 4000)
+        result = classify(listing, TEST_CONFIG)
+        assert result["vurdering"] == "afvis", (title, result)
+        assert result["classification_method"] == "afvist: over prisloft (kompakt_h)", title
+        assert not any("beholderstørrelse" in m for m in result["mangler_info"]), title

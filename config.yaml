@@ -38,7 +38,7 @@ search_terms:
     - "Sicherheitssauger Klasse H"
     - "Asbestsauger"
     - "klass H"
-  # Modelwhitelistens ~74 mærke+model-kombinationer, søgt hver for sig (spec:
+  # Modelwhitelistens ~85 mærke+model-kombinationer, søgt hver for sig (spec:
   # "søg hver enkelt separat"). Genereret fra scraper/scraper/models.py --
   # hold denne liste i sync hvis models.py's whitelist ændres (der er bevidst
   # ingen automatisk kodegenerering her, for at YAML'en forbliver menneske-
@@ -73,6 +73,13 @@ search_terms:
     # --- 3B: asbest tilladt, INGEN sikkerhedspose (★★) ---
     - "Nilfisk AERO 26-2H"
     - "Nilfisk AERO 21 H"
+    # Ny 2026-09-29 (stovsuger-modeloversigt2.md -- brugerens version 3 --
+    # afsnit 5 + 7A). Placeret her og ikke i 3A-gruppen ovenfor, selvom
+    # dokumentets afsnit 7A-tabel har overskriften "med ... sikkerhedspose":
+    # modellens EGEN række i den tabel har "Sikkerhedspose: ikke fundet", og
+    # der citeres intet model-specifikt asbestbevis for den. Se models.py's
+    # baier_bss608h-note. Afsnit 5 nævner den primært som LEJEmaskine.
+    - "Baier BSS 608H"
     # --- 3C: H-klasse, men asbest forbudt eller gråzone (★) ---
     - "Metabo ASA 30 H PC"
     - "Metabo ASR 35 H ACP"
@@ -200,7 +207,7 @@ playwright:
   min_delay_s: 3
   max_delay_s: 8
   max_pages_per_term: 3
-  # 63 søgetermer (7 generiske + 56 modelspecifikke, opdateret 2026-09-28) på
+  # 64 søgetermer (7 generiske + 57 modelspecifikke, opdateret 2026-09-29) på
   # tværs af 6 Playwright-baserede kilder -- sat højt nok til at nå hele
   # listen inden for ét launchd-interval (6 timer), se main.py's
   # SOURCE_TIMEOUT_OVERRIDES for Kleinanzeigens separate watchdog-forlængelse.

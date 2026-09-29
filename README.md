@@ -147,6 +147,89 @@ De 19 allerede-scrapede rækker er patchet direkte i Turso (ingen grund til
 en ny 1-times fuld kørsel for 19 kendte rækker); fremtidige kørsler retter
 det automatisk via samme "altid genberegn, aldrig skip" mekanisme som R10.
 
+## Version 3 af brugerens modeloversigt (2026-09-29) -- asbest-påstande rettet
+
+Brugeren afleverede `input/stovsuger-modeloversigt2.md`, en eksplicit
+selvkorrigerende revision af de to tidligere versioner (dens afsnit 9 er en
+changelog over egne fejl). Den er nu den stærkeste kilde for model-metadata.
+`input/stovsuger-modeloversigt.md` (version 1-2) er **beholdt som historisk
+dokument**, men dens tilbagetrukne påstande må ikke genciteres i ny kode.
+
+**Det centrale fund (afsnit 7A).** Sætningen *"Dust class M and H certification
+including Asbestos"* på Nilfisks egen produktside er **serietekst for hele 33
+M/H-familien** -- den står ordret også på siden for **ATTIX 33-2M PC** (varenr.
+107412179), en M-maskine der ikke må bruges til asbest. Version 1-2 brugte
+sætningen som *stærkeste* bevis for at Nilfisk Attix 33-2H er asbestgodkendt.
+Det holder ikke. Det der holder, er SKU-specifikt: **"ASBES" i varenavnet på
+107412183** (PC) og **"BG BAU ASBEST" på 107419012** -- en *anden, sjældnere*
+IC-SKU end den "almindelige" IC 107412184, som ingen mærkning har.
+
+Konsekvenser i koden:
+
+- **`nilfisk_attix_33_2h` har nu `asbestos_approved=None`** (ukendt), ikke
+  `True`. Et bart "Attix 33-2H"-tekstmatch kan ikke skelne de tre varenumre.
+  Feltet er sat via en ny `inherit_brand_asbestos_default=False`, fordi
+  `asbestos_approved=None` alene ikke kan udtrykke "eksplicit ukendt" --
+  `__post_init__` ville ellers opgradere det til `True` via
+  `_ASBESTOS_APPROVED_H_BRANDS`.
+- **Ingen model_key-opdeling på IC/PC.** Den ville være falsk præcision: både
+  den mærkede 107419012 og den umærkede 107412184 er "IC". Mærkningen er
+  fritekst i annoncen, ikke noget der kan udledes af modelnavnet, og opsamles
+  derfor som et **blødt tekst-signal**, `asbest_sku_maerkning`
+  (`normalize.ASBESTOS_SKU_MARKING_PATTERN`, samme mekanik som
+  `nyt_filter`/`unused_machine`): varenumrene, `"BG BAU"`, og `"ASBES"` **uden**
+  efterfølgende `t` (varenavnets afkortede stavemåde). Ordet *"asbest"* alene
+  er bevidst **ikke** med -- det dækker både sælgerens marketingpåstand og det
+  stik modsatte, at maskinen *har kørt* asbest (-3 point).
+- **Scoringen skelner nu tre niveauer** i stedet for at give alle +3:
+  modelbevis (+3) > SKU-mærkning i annonceteksten (+3) > sælgerens egen,
+  ukvalificerede påstand (+1). Påstår en annonce asbestgodkendelse uden at
+  models.py kan bekræfte den og uden SKU-mærkning, tilføjes en `mangler_info`
+  om netop serietekst-fælden. Et **syvende sælgerspørgsmål** er tilføjet:
+  varenummeret på typeskiltet.
+
+**Øvrige rettelser fra samme dokument:**
+
+| Model | Rettelse | Kilde |
+|---|---|---|
+| Nilfisk Attix 44-2H IC | `container_l` 44 → **37 l** ("44" er ikke beholderen) | 7A |
+| Hilti VC 40H-X | `container_l` 30 → **36 l** | 7C |
+| Nilfisk Attix 33-2H | nypris 6.100-8.500 → **4.999-5.150 kr.** | 7A |
+| Nilfisk AERO 26-2H PC | nypris 3.100-3.500 → **2.569-4.269 kr.** (dokumenteret EAN-spredning) | 12 |
+| Baier BSS 608H | **ny model** (30 l, H), `asbestos_approved=None`, ★★ | 5, 7A, 11 |
+| Attix 30-2M/33-2M/44-2M/50-2M, Flex VCE 44 M AC, Makita VC3211M | **nye/udvidede M-mønstre** (krævede før "PC", fangede ikke IC-varianterne) | 6, 10, 11 |
+| Makita VC3211L, Baier BSS 606L, RONDA 200/2000 uden H | **nye hård-afvisninger** | 10, 11 |
+| Makita VC3211H | bekræftet uændret: 32 l, gråzone, ikke forbudt | 6, 7C |
+| RONDA 200H | 14 l pose / 16 l beholder -- `container_l` forbliver `None` (generisk mønster dækker 80H/200H/1800H) | 7A, rettelse 17 |
+
+`Baier BSS 608H` står i afsnit 7A, hvis overskrift lover *"dokumenteret
+asbestegnethed og sikkerhedspose"* -- men modellens **egen række har
+"Sikkerhedspose: *ikke fundet*"**, og der citeres intet model-specifikt
+asbestbevis. Tabelplacering er ikke evidens, så den fik `None` og ★★, ikke ★★★.
+
+**Prisloft-hul lukket.** Specens to H-intervaller (25-35 l og 40-75 l) efterlod
+et hul på 36-39 l, som var tomt indtil volumen-rettelserne ovenfor flyttede to
+modeller derind. Uden en rettelse ville de hverken kunne afvises på prisloft
+eller blive "køb nu". `classify._price_category()` bruger nu `25 <= l < 40` for
+kompakt -- hullet lukkes *opad*, mod det **laveste** købsloft (3.500 vs. 5.000
+kr.), altså den konservative retning.
+
+**Tilbagetrukne påstande (må ikke genciteres).** AERO'ens værktøjsstik begrænset
+til 1100 W (udokumenteret); Nilfisk som *"dokumenteret"* OEM-producent for
+Makita/Flex/Eibenstock (kilden var et værktøjsforum -- nedgraderet til
+hypotese); den gamle kr./l-metode (dobbelttælling af 85 %-fyldningsgraden); og
+støvklasse L/M angivet som ≤1 % / ≤0,1 % -- det var **filterelementets**
+retention. De korrekte tærskler (IEC 60335-2-69 Annex AA) er **L <5 %, M <0,5 %,
+H <0,005 %**. Ingen af dem var kodet i `models.py`/`README.md`, så der var intet
+at fjerne -- de er noteret i `models.py`'s docstring, så de ikke genopstår.
+
+**Åbent spørgsmål, bevidst ikke afgjort.** Serietekst-fundet undergraver strengt
+taget også grundlaget for de **øvrige** Nilfisk-Attix-H-modellers
+`asbestos_approved=True`, som stammer fra brand-defaulten og ikke fra nogen
+SKU-specifik mærkning. Version 3 lader dem dog stå i afsnit 7A's tabel og retter
+eksplicit kun 33-2H-familien (rettelse 8 og 9). Brand-defaulten er derfor
+uændret; en bredere nedgradering kræver brugerens beslutning.
+
 ## Kendte begrænsninger (bevidst ikke bygget i denne omgang)
 
 - **Ingen notifikationer/dagsrapport**: specen beder om "underret straks ved
@@ -169,7 +252,7 @@ det automatisk via samme "altid genberegn, aldrig skip" mekanisme som R10.
 
 ```bash
 make venv
-make test              # 23 unit-tests: model-whitelist/blacklist, scoring-motor
+make test              # 54 unit-tests: model-whitelist/blacklist, scoring-motor
 .venv/bin/python -m scraper.main --source dba   # kør én kilde manuelt
 make install-launchd SCRAPE_INTERVAL_SECONDS=21600   # spec: "kør hver 6. time"
 ```

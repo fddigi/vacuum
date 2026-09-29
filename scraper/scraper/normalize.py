@@ -108,6 +108,37 @@ ASBESTOS_USED_PATTERN = re.compile(
 ASBESTOS_APPROVED_TEXT_PATTERN = re.compile(
     r"\b(asbestgodkendt|trgs\s*519|asbestzugelassen|asbest[\s-]*certificeret)\b", re.I
 )
+
+# KRITISK FUND (brugerens stovsuger-modeloversigt2.md -- version 3, 2026-09-29
+# -- afsnit 7A + rettelse 8/9): sætningen "Dust class M and H certification
+# including Asbestos" på Nilfisks egen produktside er SERIETEKST for hele 33
+# M/H-familien. Den står ORDRET også på siden for ATTIX 33-2M PC (varenr.
+# 107412179), en M-maskine der ikke må bruges til asbest. Den var version 1-2's
+# stærkeste bevis for Attix 33-2H's asbestgodkendelse, og den holder ikke.
+#
+# Den eneste dokumentation kilden nu accepterer som SKU-specifik, er selve
+# varenavnet/varenummeret:
+#   - "ASBES" (den afkortede katalogstavemåde) i navnet på 107412183 (PC)
+#   - "BG BAU ASBEST" i navnet på 107419012 (IC -- en ANDEN, sjældnere SKU end
+#     den "almindelige" IC 107412184, som INGEN sådan mærkning har)
+# Det er tekst der kun kan stå i selve annoncen, ikke noget der kan udledes af
+# modelnavnet, og hører derfor hjemme som et blødt tekst-signal (samme mekanik
+# som nyt_filter/unused_machine) frem for som en model_key -- se den lange
+# kommentar over models.py's nilfisk_attix_33_2h for hvorfor en model_key-
+# opdeling på IC/PC ville være falsk præcision.
+#
+# Mønsteret matcher BEVIDST IKKE det almindelige ord "asbest":
+#   * "asbest" alene er hamrende tvetydigt i en brugtannonce -- det dækker både
+#     sælgerens egen marketingpåstand (fanget separat og SVAGERE af
+#     ASBESTOS_APPROVED_TEXT_PATTERN ovenfor, netop fordi den kan være afskrevet
+#     serietekst) OG det stik modsatte: at maskinen HAR kørt asbest
+#     (ASBESTOS_USED_PATTERN, -3 point). At lade "asbest" hæve tilliden ville
+#     kunne opgradere præcis den maskine man skal holde sig længst fra.
+#   * "ASBES" UDEN efterfølgende "t" er derimod netop produktnavnets afkortede
+#     stavemåde; \b sikrer at "asbest"/"asbestsuger"/"asbestgodkendt" aldrig
+#     rammes af den gren.
+# Varenumrene er den stærkeste af de tre grene og kræver ingen fortolkning.
+ASBESTOS_SKU_MARKING_PATTERN = re.compile(r"\basbes\b|\bbg[\s-]*bau\b|\b10741(?:2183|9012)\b", re.I)
 COMPLETENESS_NEGATIVE_PATTERN = re.compile(
     r"\b(kun\s+beholder|uden\s+slange|l[øo]sdele|mangler\s+motorhoved|kun\s+motorhoved)\b", re.I
 )
@@ -305,6 +336,7 @@ def extract_soft_signals(text: str) -> dict:
         "condition_red_flag": bool(CONDITION_RED_FLAG_PATTERN.search(text)),
         "asbest_kort_i_brug": bool(ASBESTOS_USED_PATTERN.search(text)),
         "asbest_godkendt_i_tekst": bool(ASBESTOS_APPROVED_TEXT_PATTERN.search(text)),
+        "asbest_sku_maerkning": bool(ASBESTOS_SKU_MARKING_PATTERN.search(text)),
         "completeness_negative": bool(COMPLETENESS_NEGATIVE_PATTERN.search(text)),
         "weak_evidence_only": bool(WEAK_EVIDENCE_PATTERN.search(text)),
         "known_brand_mentioned": mentions_known_brand(text) and has_model_token(text),

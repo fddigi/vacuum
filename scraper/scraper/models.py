@@ -39,6 +39,52 @@ i overblikket -- 3=A (asbestgodkendt MED sikkerhedspose, bedste kategori), 2=B (
 tilladt, ingen sikkerhedspose), 1=C (H-klasse, men asbest forbudt/gråzone), 0=ikke i
 denne kuraterede liste (upåvirket, almindelig H/M-model). Bruges til søgeprioritering
 (config.yaml) og en "★"-badge i frontend'en (se worker/src/index.ts' "prioritet"-felt).
+priority_stars er BEVIDST en anden akse end asbestos_approved: stjernerne siger
+"hvor højt skal denne model prioriteres i SØGNINGEN" (kildens egen kategorisering),
+asbestos_approved siger "kan asbestgodkendelse bevises for netop den maskine en
+annonce beskriver". De to kan divergere -- se nilfisk_attix_33_2h nedenfor.
+
+STOR REVISION 2026-09-29 -- brugerens "stovsuger-modeloversigt2.md" (version 3,
+eksplicit selvkorrigerende over for version 1-2; afsnit 9 er dens egen changelog).
+Dokumentet er nu den stærkeste kilde og slår version 1-2 (input/stovsuger-
+modeloversigt.md, beholdt som historisk dokument, men dens tilbagetrukne påstande
+må IKKE genciteres i ny kode). De ændringer der rammer denne fil:
+
+  1. AFSNIT 7A, KRITISK: sætningen "Dust class M and H certification including
+     Asbestos" på Nilfisks egen side er SERIETEKST for hele 33 M/H-familien -- den
+     står ordret også på siden for ATTIX 33-2M PC (varenr. 107412179), en M-maskine
+     der IKKE må bruges til asbest. Version 1-2 brugte den som stærkeste bevis for
+     Attix 33-2H's asbestgodkendelse; den beviser intet modelspecifikt. Kun
+     VARENAVNET er SKU-specifikt: "ASBES" på 107412183 (PC) og "BG BAU ASBEST" på
+     107419012 (en anden, sjældnere IC-SKU end den "almindelige" IC 107412184, som
+     ingen sådan mærkning har). Konsekvens: nilfisk_attix_33_2h har nu en EKSPLICIT
+     asbestos_approved=None (se inherit_brand_asbestos_default nedenfor).
+  2. Afsnit 8 retter støvklasse-tærsklerne (IEC 60335-2-69 Annex AA): L <5 %,
+     M <0,5 %, H <0,005 % -- version 1-2's "≤1 %"/"≤0,1 %" var FILTERELEMENTETS
+     retention, ikke maskinens gennemtrængning. Ikke kodet her (denne fil lagrer
+     kun klassebogstavet), men nævnt så tallene ikke genopstår i en kommentar.
+  3. Afsnit 8: TRGS 519 er en tysk teknisk regel UDEN retskraft i Danmark, og den
+     tyske asbestmærkning er i vidt omfang FABRIKANTERKLÆRET, ikke tredjeparts-
+     certificeret. Asbestegnethed er en Zusatzprüfung oven på H-testen. Det
+     underbygger husets i forvejen konservative linje, men gør ikke en
+     asbestmærkning værdiløs -- den viser at fabrikanten har testet
+     bortskaffelsessystemet.
+  4. Tilbagetrukne påstande fra version 1-2 der IKKE må genciteres: AERO'ens
+     værktøjsstik begrænset til 1100 W (udokumenteret), Nilfisk som "dokumenteret"
+     OEM-producent for Makita/Flex/Eibenstock (kilde var et forum -- nedgraderet
+     til hypotese), den gamle kr./l-metode (dobbelttælling), og de gamle
+     L/M-procenttærskler (se punkt 2).
+  5. Volumen/pris rettet pr. model efter afsnit 7A/7B/7C/12 -- se de enkelte
+     entries' noter (Attix 44-2H 44->37 l, Hilti VC 40H-X 30->36 l, iPulse H-1635
+     Safe Plus None->35 l, AERO 26-2H's nypris til 12's EAN-spredning).
+
+ÅBENT SPØRGSMÅL efter version 3 (bevidst IKKE afgjort her): punkt 1 undergraver
+strengt taget også grundlaget for de ØVRIGE Nilfisk-Attix-H-modellers
+asbestos_approved=True, som i dag kommer fra _ASBESTOS_APPROVED_H_BRANDS-defaulten
+og ikke fra nogen SKU-specifik mærkning. Version 3 lader dem dog stadig stå i afsnit
+7A's tabel ("H-klasse med dokumenteret asbestegnethed og sikkerhedspose"), og
+retter eksplicit KUN 33-2H-familien (rettelse 8 og 9). Brand-defaulten er derfor
+bevaret uændret her; en bredere nedgradering kræver brugerens beslutning.
 """
 
 from __future__ import annotations
@@ -65,11 +111,19 @@ class ModelEntry:
     asbestos_approved: bool | None = None  # None = ukendt/ikke oplyst af kilderne
     battery: bool = False  # batterimaskine -- spec: "kun som sekundært fund"
     priority_stars: int = 0  # 0-3, se modulets docstring ("priority_stars")
+    # NYT 2026-09-29 (stovsuger-modeloversigt2.md, afsnit 7A): gør det muligt at
+    # sige "asbestos_approved er EKSPLICIT ukendt for netop denne model", hvilket
+    # asbestos_approved=None alene IKKE kan udtrykke -- None er også default-
+    # værdien, og __post_init__ opgraderer den til True for brands i
+    # _ASBESTOS_APPROVED_H_BRANDS. Uden dette flag ville et eksplicit "vi ved det
+    # ikke" for en Nilfisk/Flex-H-model stille blive lavet om til et "ja".
+    # Sæt til False når kilden aktivt har TRUKKET beviset tilbage for modellen.
+    inherit_brand_asbestos_default: bool = True
     note: str = ""
 
     def __post_init__(self):
         if self.asbestos_approved is None and self.dust_class == "H":
-            if self.brand in _ASBESTOS_APPROVED_H_BRANDS:
+            if self.inherit_brand_asbestos_default and self.brand in _ASBESTOS_APPROVED_H_BRANDS:
                 object.__setattr__(self, "asbestos_approved", True)
 
 
@@ -138,9 +192,25 @@ MODEL_WHITELIST: list[ModelEntry] = [
         "AERO 26-2H PC",
         "H",
         25,
-        3100,
-        3500,
+        2569,
+        4269,
         priority_stars=2,
+        note="container_l=25 BEKRÆFTET 2026-09-29 (stovsuger-modeloversigt2.md, "
+        "afsnit 7B + rettelse 18: 'AERO har 25 L beholder, ikke 26' -- allerede "
+        "rettet i en tidligere omgang, ingen ændring nødvendig). Nypris RETTET fra "
+        "3.100-3.500 til 2.569-4.269 kr.: afsnit 12 dokumenterer en reel "
+        "prisspredning på SAMME EAN for netop denne model ('Tjek EAN, ikke navn'), "
+        "hvilket er et bredere og bedre belagt interval end afsnit 7B's enkeltstal "
+        "(3.300 ny / 2.400 brugt), som det indeholder. Konsekvens: 70%-porten i "
+        "classify.py regnes nu mod 2.569 kr. (= 1.798 kr.), ikke 3.100 kr. Det "
+        "flugter med dokumentets egen korrigerede brugtregel (afsnit 8: spread "
+        "skal overstige filter + poser + mindst 1.000 kr. risikomargin, og 'med "
+        "den er AERO brugt til 2.400 kr. stadig ikke værd at tage'). NB: "
+        "version 1-2's påstand om at AERO'ens værktøjsstik er begrænset til 1100 W "
+        "er TRUKKET TILBAGE som udokumenteret (rettelse 10) og må ikke genciteres; "
+        "den er aldrig blevet kodet i denne fil. Sikkerhedspose findes derimod "
+        "reelt ikke til AERO (107413549 lister den ikke som kompatibel), hvilket "
+        "er hele grunden til kategori B / priority_stars=2.",
     ),
     ModelEntry(
         "nilfisk_aero_21h",
@@ -226,10 +296,55 @@ MODEL_WHITELIST: list[ModelEntry] = [
         5800,
         5800,
     ),
+    ModelEntry(
+        "baier_bss608h",
+        _p(r"\bbss[\s-]*608[\s-]*h\b"),
+        "Baier",
+        "BSS 608H",
+        "H",
+        30,
+        7436,
+        7436,
+        asbestos_approved=None,
+        priority_stars=2,
+        note="Ny 2026-09-29 (stovsuger-modeloversigt2.md, afsnit 5 + 7A + 11) -- "
+        "første Baier-model i whitelisten. asbestos_approved BEVIDST None og IKKE "
+        "True, selvom modellen står i afsnit 7A, hvis overskrift lyder 'H-klasse "
+        "med dokumenteret asbestegnethed OG sikkerhedspose': dokumentet citerer "
+        "INTET model-specifikt asbestbevis for BSS 608H (til forskel fra Flex VCE "
+        "44 H AC's 'inkl. Asbest' på databladet eller Nilfisks SKU-navne), og "
+        "modellens EGEN række i netop den tabel har 'Sikkerhedspose: ikke fundet'. "
+        "Tabellens kategoriplacering og den citerede evidens modsiger altså "
+        "hinanden for denne ene model, og husets konvention (se modulets "
+        "docstring) er da ukendt frem for gæt. Samme begrundelse for "
+        "priority_stars=2 og ikke 3: det ENE kriterium der adskiller 7A fra 7B er "
+        "sikkerhedsposen, og den kan ikke bekræftes her -- modellen opfører sig "
+        "reelt som en 7B-model. Data jf. 7A: 30 l, 14,5 kg, 69 dB(A), nypris 7.436 "
+        "kr. Afsnit 5 nævner den desuden som LEJEmaskine (PV Udlejning); "
+        "dokumentets hovedanbefaling er at leje frem for at købe, så et brugtfund "
+        "her er et supplement, ikke en modsætning til afsnit 5. Vægt/dB/luftmængde "
+        "lagres ikke (ModelEntry har ingen felter til det), og afsnit 8 advarer "
+        "eksplicit mod at sammenligne netop Baiers luftmængdetal på tværs af "
+        "kilder (manualens 143 m³/t vs. Carl Ras' 74 l/s = 266 m³/t for SAMME "
+        "maskine).",
+    ),
     # Attix 33-2H: matcher BÅDE "IC" (i produktion) og "PC" (udgået, sektion
     # 2.5) suffiks-varianter under samme model_key -- begge er samme grund-
     # maskine (30 l, H-klasse), kun filterrens-suffiks adskiller dem, og det
     # opsamles separat af normalize.py's tekst-baserede feature-scan.
+    #
+    # KRITISK RETTELSE 2026-09-29 (stovsuger-modeloversigt2.md, afsnit 7A +
+    # rettelse 8/9) -- HVORFOR DENNE ENTRY IKKE ER SPLITTET I FLERE model_keys:
+    # den SKU-specifikke asbestmærkning ("ASBES" på 107412183, "BG BAU ASBEST"
+    # på 107419012) kan ikke udledes af IC/PC-suffikset i en annoncetitel --
+    # BÅDE den mærkede 107419012 OG den umærkede 107412184 er "IC". En
+    # model_key-opdeling på IC/PC ville derfor flytte præcis den samme forkerte
+    # antagelse ét lag ned, med et falsk præg af præcision. Den mærkning der
+    # FAKTISK er SKU-specifik, optræder som fritekst i annoncen (varenummeret
+    # eller ordene "ASBES"/"BG BAU"), og hører derfor hjemme som et
+    # tekst-signal, ikke som en model_key: se normalize.py's
+    # ASBESTOS_SKU_MARKING_PATTERN / extract_soft_signals()'s
+    # "asbest_sku_maerkning" (samme mekanik som nyt_filter/unused_machine).
     ModelEntry(
         "nilfisk_attix_33_2h",
         _p(rf"\b{_ATTIX}[\s-]*33[\s-]*2h\b"),
@@ -237,12 +352,30 @@ MODEL_WHITELIST: list[ModelEntry] = [
         "Attix 33-2H (IC/PC)",
         "H",
         30,
-        6100,
-        8500,
+        4999,
+        5150,
+        asbestos_approved=None,
+        inherit_brand_asbestos_default=False,
         priority_stars=3,
-        note="stovsuger-modeloversigt.md (2026-09-28), afsnit 3A: 'ASBES' i "
-        "produktnavnet, varenr. 107412183, 'Dust class M and H certification "
-        "including Asbestos' -- brugerens top-anbefaling for nykøb (4.999 kr.).",
+        note="RETTET 2026-09-29 (stovsuger-modeloversigt2.md, afsnit 7A + "
+        "rettelse 8/9): asbestos_approved nedgraderet fra True (arvet fra "
+        "Nilfisk-brand-defaulten) til EKSPLICIT None. Version 1-2's stærkeste "
+        "bevis, 'Dust class M and H certification including Asbestos' på "
+        "Nilfisks egen side, er serietekst for hele 33 M/H-familien og står "
+        "ORDRET også på ATTIX 33-2M PC (varenr. 107412179) -- en M-maskine der "
+        "ikke må bruges til asbest. Det der holder, er SKU-specifikt: 'ASBES' i "
+        "varenavnet på 107412183 (PC) og 'BG BAU ASBEST' på 107419012 (IC). Den "
+        "'almindelige' IC, 107412184, har INGEN sådan mærkning (rettelse 9: "
+        "'ASBES-navnet hører til PC'en, ikke IC'en som blev anbefalet'). Et bart "
+        "'Attix 33-2H'-match i en annoncetitel kan ikke skelne de tre SKU'er, og "
+        "må derfor ikke præsumeres asbestgodkendt. inherit_brand_asbestos_default"
+        "=False er nødvendig for at None IKKE opgraderes til True i __post_init__. "
+        "priority_stars BEVARET på 3: afsnit 7A lister stadig modellen i kategori "
+        "A (sikkerhedspose 107413549 angives kompatibel med Attix 33-2H IC/PC, "
+        "44-2H og VHS 40/42), og stjernerne styrer søgeprioritet, ikke "
+        "asbestpåstanden. Nypris rettet fra 6.100-8.500 til 4.999-5.150 kr. jf. "
+        "afsnit 7A's egne tal (4.999 IC / 5.150 PC) -- strammer samtidig "
+        "70%-af-nypris-porten i classify.py, hvilket er den konservative retning.",
     ),
     ModelEntry(
         "nilfisk_attix_30_0h",
@@ -324,10 +457,13 @@ MODEL_WHITELIST: list[ModelEntry] = [
         "Hilti",
         "VC 40H-X",
         "H",
-        30,
+        36,
         asbestos_approved=False,
         priority_stars=1,
-        note="Spec: 'flag: ikke asbestgodkendt' -- Hilti fraskriver sig eksplicit asbest.",
+        note="Spec: 'flag: ikke asbestgodkendt' -- Hilti fraskriver sig eksplicit "
+        "asbest (bekræftet 2026-09-29: stovsuger-modeloversigt2.md, afsnit 7C, "
+        "'FRASKREVET'). container_l RETTET 30 -> 36 l samme dato efter samme "
+        "tabel -- '40' i modelnavnet er ikke beholderstørrelsen.",
     ),
     # --- H-klasse, store 40-75 l (spec-tabel 2.3) ---
     ModelEntry(
@@ -371,7 +507,10 @@ MODEL_WHITELIST: list[ModelEntry] = [
         "H",
         35,
         priority_stars=1,
-        note="Ny 2026-09-28 (stovsuger-modeloversigt.md, afsnit 3C): 'Uafklaret "
+        note="container_l=35 bekræftet 2026-09-29 (stovsuger-modeloversigt2.md, "
+        "afsnit 7C), og asbeststatus fastholdt som 'Uafklaret -- kun "
+        "forhandlertekst' (rettelse 20). "
+        "Ny 2026-09-28 (stovsuger-modeloversigt.md, afsnit 3C): 'Uafklaret"
         "-- markedsføres til asbest, men kun af forhandlere. Få det på skrift "
         "fra importøren før køb.' Adskilt model_key fra 'iPulse Safe 1635 EW H' "
         "ovenfor -- forskellig ordstilling i navnet, ikke bekræftet samme maskine.",
@@ -467,7 +606,19 @@ MODEL_WHITELIST: list[ModelEntry] = [
         note="Generisk Ronda-H-mønster, se kommentar ovenfor -- ikke fra specen "
         "selv. stovsuger-modeloversigt.md (2026-09-28, afsnit 3A) bekræfter "
         "RONDA 200H Power og 80H/80H25 som asbestgodkendt m. sikkerhedspose "
-        "(Brøndums datablad) -- dækket generisk af dette mønster.",
+        "(Brøndums datablad) -- dækket generisk af dette mønster. "
+        "GENNEMGÅET 2026-09-29 (stovsuger-modeloversigt2.md, afsnit 7A + "
+        "rettelse 17): RONDA 200H Power er 14 l POSE / 16 l beholder, ikke ~30 l "
+        "som version 1 antog. container_l er BEVIDST stadig None her -- mønsteret "
+        "er generisk og dækker 80H/200H/1800H med hver sin størrelse, så et "
+        "enkelt tal ville være forkert for de fleste fund. Afsnit 8 bemærker "
+        "desuden at netop RONDA (og Bona) er de eneste modeller hvor "
+        "kr./l-tallet hviler på fabrikantens OPGIVNE posevolumen og ikke på "
+        "kildens eget 85 %-skøn -- altså de mest pålidelige tal i tabellen. "
+        "asbestos_approved arves fortsat som None (Ronda er ikke i "
+        "_ASBESTOS_APPROVED_H_BRANDS); det er bevidst konservativt, selvom "
+        "afsnit 7A placerer 200H Power i kategori A -- mønsteret matcher også "
+        "Ronda-modeller kilden intet siger om.",
     ),
     ModelEntry(
         "bona_dcs25",
@@ -573,9 +724,14 @@ MODEL_WHITELIST: list[ModelEntry] = [
         "Nilfisk",
         "Attix 44-2H IC",
         "H",
-        44,
+        37,
         priority_stars=3,
-        note="InfiniClean, tretrins filtrering.",
+        note="InfiniClean, tretrins filtrering. container_l RETTET 44 -> 37 l "
+        "2026-09-29 (stovsuger-modeloversigt2.md, afsnit 7A's tabel) -- '44' i "
+        "modelnavnet er ikke beholderstørrelsen. Tallet er internt konsistent i "
+        "kilden: dens kr./l for almindelig pose (0,98) er præcis 30,80 / (37 × "
+        "0,85), samme 85 %-fyldningsformel som resten af tabellen. Afsnit 7A "
+        "bekræfter desuden at sikkerhedspose 107413549 er kompatibel med 44-2H.",
     ),
     ModelEntry(
         "nilfisk_ivb5h",
@@ -718,25 +874,77 @@ MODEL_WHITELIST: list[ModelEntry] = [
     ),
     ModelEntry("makita_vc4210m", _p(r"\bvc[\s-]*4210[\s-]*m\b"), "Makita", "VC4210M", "M"),
     ModelEntry(
-        "nilfisk_attix_30_2m_pc",
-        _p(rf"\b{_ATTIX}[\s-]*30[\s-]*2m[\s-]*pc\b"),
-        "Nilfisk",
-        "Attix 30-2M PC",
+        "makita_vc3211m",
+        _p(r"\bvc[\s-]*3211[\s-]*m\b"),
+        "Makita",
+        "VC3211M (udgået)",
         "M",
+        32,
+        note="Ny 2026-09-29 (stovsuger-modeloversigt2.md, afsnit 10 + 11 + "
+        "rettelse 21: 'VC3211M er udgået'). Whitelistet som M -- ikke for at "
+        "SØGE efter den (M-søgeord er bevidst fjernet, se config.yaml), men "
+        "for at en VC3211M-annonce klassificeres korrekt som M i stedet for at "
+        "få known_brand_mentioned-fribilletten via 'Makita' + et modelnummer. "
+        "Kolliderer ikke med makita_vc3211h ovenfor (forskelligt klassebogstav) "
+        "eller med HARD_REJECT's makita_l_serie (VC3211L).",
+    ),
+    # Attix -2M-mønstrene krævede tidligere alle et efterfølgende "PC".
+    # UDVIDET 2026-09-29 (stovsuger-modeloversigt2.md, afsnit 10, som opregner
+    # præcis "Attix 30-2M / 33-2M / 44-2M / 50-2M" blandt de diskvalificerede
+    # M-maskiner): IC-varianterne findes reelt, og en "Attix 33-2M IC"-annonce
+    # slap tidligere IGENNEM som dust_class="ukendt" + known_brand_mentioned
+    # (altså "se nærmere" uden klasse), fordi HARD_REJECT's "Attix uden
+    # klassebogstav"-mønster netop SER klassebogstavet og lader den passere.
+    # 44-2M er samtidig tilføjet, da den manglede helt.
+    ModelEntry(
+        "nilfisk_attix_30_2m",
+        _p(rf"\b{_ATTIX}[\s-]*30[\s-]*2m\b"),
+        "Nilfisk",
+        "Attix 30-2M (PC/IC)",
+        "M",
+        30,
     ),
     ModelEntry(
-        "nilfisk_attix_33_2m_pc",
-        _p(rf"\b{_ATTIX}[\s-]*33[\s-]*2m[\s-]*pc\b"),
+        "nilfisk_attix_33_2m",
+        _p(rf"\b{_ATTIX}[\s-]*33[\s-]*2m\b"),
         "Nilfisk",
-        "Attix 33-2M PC",
+        "Attix 33-2M (PC/IC)",
         "M",
+        30,
+        note="UDVIDET 2026-09-29 (stovsuger-modeloversigt2.md, afsnit 6 + 7A + "
+        "10): mønsteret krævede tidligere et efterfølgende 'PC' og ville derfor "
+        "IKKE fange 'Attix 33-2M IC' -- netop den maskine afsnit 6 anbefaler som "
+        "førstevalg hvis asbestprøverne er NEGATIVE (4.499 kr. ny hos "
+        "Billigkoste). Uden matchet endte en 33-2M IC-annonce som dust_class "
+        "'ukendt' + known_brand_mentioned, altså 'se nærmere' uden klasse. "
+        "model_key omdøbt fra 'nilfisk_attix_33_2m_pc' (ingen andre filer "
+        "refererede den; M-nøgler er ikke i worker/src/index.ts' "
+        "prioritets-lister). Denne entry er samtidig ANKERET for hele afsnit "
+        "7A-rettelsen: det er ATTIX 33-2M PC's egen produktside (varenr. "
+        "107412179) der bærer sætningen 'Dust class M and H certification "
+        "including Asbestos', og som derved beviser at sætningen er serietekst "
+        "og ikke en modelgodkendelse -- se nilfisk_attix_33_2h ovenfor. "
+        "asbestos_approved forbliver None (M-klasse: må ALDRIG bruges til "
+        "asbest, jf. afsnit 10's egen liste).",
     ),
     ModelEntry(
-        "nilfisk_attix_50_2m_pc",
-        _p(rf"\b{_ATTIX}[\s-]*50[\s-]*2m[\s-]*pc\b"),
+        "nilfisk_attix_44_2m",
+        _p(rf"\b{_ATTIX}[\s-]*44[\s-]*2m\b"),
         "Nilfisk",
-        "Attix 50-2M PC",
+        "Attix 44-2M (PC/IC)",
         "M",
+        37,
+        note="Ny 2026-09-29 (stovsuger-modeloversigt2.md, afsnit 10). "
+        "container_l=37 l som for H-søstermodellen Attix 44-2H IC, jf. afsnit "
+        "7A -- '44' i navnet er ikke beholderstørrelsen.",
+    ),
+    ModelEntry(
+        "nilfisk_attix_50_2m",
+        _p(rf"\b{_ATTIX}[\s-]*50[\s-]*2m\b"),
+        "Nilfisk",
+        "Attix 50-2M (PC/IC)",
+        "M",
+        47,
     ),
     ModelEntry(
         "karcher_nt30_1_tact_te_m",
@@ -753,6 +961,33 @@ MODEL_WHITELIST: list[ModelEntry] = [
         "M",
     ),
     ModelEntry("flex_vce33m_ac", _p(r"\bvce[\s-]*33[\s-]*m[\s-]*ac\b"), "Flex", "VCE 33 M AC", "M"),
+    ModelEntry(
+        "flex_vce44m_ac",
+        _p(r"\bvce[\s-]*44[\s-]*m[\s-]*ac\b"),
+        "Flex",
+        "VCE 44 M AC",
+        "M",
+        42,
+        note="Ny 2026-09-29 (stovsuger-modeloversigt2.md, afsnit 6 + 10): afsnit "
+        "6 nævner den som én af fire realistiske M-maskiner hvis asbestprøverne "
+        "er negative, afsnit 10 bekræfter den som M (dvs. IKKE asbest). Manglede "
+        "helt -- kun H-varianten (flex_vce44h_ac) og VCE 33 M AC var dækket, så "
+        "en VCE 44 M AC-annonce endte som 'ukendt' + known_brand_mentioned. "
+        "container_l=42 som H-søstermodellen (afsnit 7A).",
+    ),
+    ModelEntry(
+        "baier_bss607m",
+        _p(r"\bbss[\s-]*607[\s-]*m\b"),
+        "Baier",
+        "BSS 607M",
+        "M",
+        note="Ny 2026-09-29 (stovsuger-modeloversigt2.md, afsnit 11's "
+        "modelkode-dekodning: 'Baier BSS 606L/607M/608H'). Tilføjet sammen med "
+        "BSS 608H, fordi Baier nu er i KNOWN_BRANDS -- uden denne entry ville en "
+        "BSS 607M-annonce få known_brand_mentioned-fribilletten og ende som "
+        "'se nærmere' med ukendt klasse i stedet for korrekt M. container_l "
+        "ukendt: dokumentet oplyser kun volumen for 608H.",
+    ),
     ModelEntry(
         "metabo_asr35m_acp", _p(r"\basr[\s-]*35[\s-]*m[\s-]*acp\b"), "Metabo", "ASR 35 M ACP", "M"
     ),
@@ -814,7 +1049,18 @@ MODEL_WHITELIST: list[ModelEntry] = [
         "'gråzone' -- manualen forbyder ikke, men henviser til myndighederne, "
         "og kræver dekontaminering hos autoriseret institut efter asbestbrug. "
         "Ingen sikkerhedspose. asbestos_approved bevidst None (hverken "
-        "godkendt eller forbudt), IKKE False.",
+        "godkendt eller forbudt), IKKE False. "
+        "BEKRÆFTET UÆNDRET 2026-09-29 (stovsuger-modeloversigt2.md, afsnit 6 + "
+        "7C): 32 l, 2600 W værktøjsstik, 16,9 kg, 72,5 dB(A), status fortsat "
+        "'Gråzone -- henviser til myndighederne', med manualens ordlyd citeret "
+        "direkte: 'Please check with your local authorities for any regulations "
+        "regarding the use of these vacuum cleaners when working with toxic "
+        "materials such as Asbestos', plus krav om dekontaminering hos "
+        "autoriseret institut efter asbestbrug. Version 3 fastholder desuden "
+        "anbefalingen (brugt til 2.000 kr.) -- men KUN hvis asbestprøverne er "
+        "negative; ved positive prøver anbefaler afsnit 1/5 leje + autoriseret "
+        "firma, ikke køb. Vægt/dB/værktøjsstik-watt lagres ikke (ModelEntry har "
+        "ingen felter til det).",
     ),
 ]
 
@@ -888,7 +1134,24 @@ HARD_REJECT_PATTERNS: list[tuple[str, re.Pattern]] = [
     # CT MIDI/CT SYS-varianter.
     ("festool_ctl_generisk", _p(r"\bctl\b")),
     ("festool_ct_midi_sys", _p(r"\bct[\s-]*(?:midi|sys)\b")),
-    ("makita_l_serie", _p(r"\b(?:dvc[\s-]*750l|dvc[\s-]*860l|vc[\s-]*3011l)\b")),
+    # "vc 3211 l" tilføjet 2026-09-29 (stovsuger-modeloversigt2.md, afsnit 11:
+    # "Makita VC3211L/M/H") -- L-varianten af den maskine afsnit 6 anbefaler i
+    # H-udgave. Whitelisten tjekkes først, så VC3211H/VC3211M rammes aldrig.
+    (
+        "makita_l_serie",
+        _p(r"\b(?:dvc[\s-]*750l|dvc[\s-]*860l|vc[\s-]*3011l|vc[\s-]*3211[\s-]*l)\b"),
+    ),
+    # Ny 2026-09-29 (stovsuger-modeloversigt2.md, afsnit 11: "Baier BSS
+    # 606L/607M/608H"). Baier kom ind i KNOWN_BRANDS med BSS 608H, og uden
+    # denne regel ville L-varianten få known_brand_mentioned-fribilletten.
+    ("baier_l_serie", _p(r"\bbss[\s-]*606[\s-]*l\b")),
+    # Ny 2026-09-29 (stovsuger-modeloversigt2.md, afsnit 10 "Ingen støvklasse":
+    # "RONDA 2000 · RONDA 200 (uden H)", uddybet i rettelse 22: "RONDA 200 uden
+    # H findes, men er født uden H-filtertrinnet"). Det negative lookahead er
+    # det afgørende: "RONDA 200 H"/"RONDA 200H Power" matcher ronda_h_serie i
+    # whitelisten, som alligevel tjekkes FØRST -- lookaheadet er derfor kun et
+    # ekstra værn hvis rækkefølgen nogensinde skulle blive brudt.
+    ("ronda_200_uden_h", _p(r"\bronda\b.{0,10}?\b(?:200|2000)\b(?![\s-]*h\b)")),
     ("dewalt_l_serie", _p(r"\b(?:dc[\s-]*500|dcv[\s-]*582|dcv[\s-]*584l)\b")),
     ("bosch_l_serie", _p(r"\bgas[\s-]*(?:15|25|35)[\s-]*l\b")),
     ("bosch_18v", _p(r"\bgas[\s-]*18v\b")),
