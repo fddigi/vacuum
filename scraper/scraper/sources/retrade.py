@@ -2,11 +2,17 @@
 Playwright headless, throttlet, best-effort.
 
 ÆRLIG FORVENTNING (fra research): domineret af tung entreprenør-/
-landbrugsmaskineri -- 0 hits ved test-søgning på både "karcher" og
-"støvsuger". Teknisk triviel og billig at inkludere (samme mønster som de
-øvrige HTML-kilder), men forvent sjældne/ingen reelle fund for denne
-varekategori. Inkluderet fordi brugeren bad om ALLE fundne auktionshuse, ikke
-fordi der er dokumenteret markedsdækning her.
+landbrugsmaskineri -- "støvsuger"/"industristøvsuger" giver 0 kort site-wide;
+kun mærke-søgninger (Nilfisk/Kärcher) rammer noget, og de hits er kost-/
+fejemaskiner og højtryksrensere, ikke sikkerhedsstøvsugere. Teknisk triviel og
+billig at inkludere (samme mønster som de øvrige HTML-kilder), men forvent
+sjældne/ingen reelle fund for denne varekategori. Inkluderet fordi brugeren
+bad om ALLE fundne auktionshuse, ikke fordi der er dokumenteret markedsdækning
+her.
+
+KRITISK FUND (Opus-review, 2026-09-29): kørte 0 fund i praksis, IKKE fordi
+kilden var i stykker, men fordi _parse_price() kun genkendte "... DKK" -- se
+mønsterets egen kommentar nedenfor for hvorfor det droppede ~2/3 af alle kort.
 
 Priser er AKTUELT BUD (se pipeline.py's is_auction-nedgraderingslogik).
 """
@@ -34,15 +40,34 @@ def _looks_like_bot_wall(page) -> bool:
     return any(m in content for m in BOT_WALL_MARKERS)
 
 
-def _parse_price(price_text: str):
-    m = re.search(r"([\d\s.,]+)\s*dkk", price_text or "", re.I)
+# KRITISK FUND (Opus-review, 2026-09-29): Retrade er PAN-NORDISK og viser hver
+# auktion i SÆLGERENS egen valuta, ikke i DKK -- målt over 54 kort: DKK 20 /
+# NOK 17 / SEK 17. Det gamle mønster (kun "dkk") droppede derfor tavst ~2/3 af
+# alle kort, og for de støvsuger-relevante søgeord ramte det 100% (alle
+# tilfældigvis SEK/NOK). Udvidet til at genkende alle tre valutaer.
+_PRICE_PATTERN = re.compile(r"([\d\s.,]+)\s*(dkk|sek|nok)", re.I)
+
+# Norge er bevidst IKKE i config.yaml's import_costs.eu_country_codes, så en
+# norsk lot får korrekt import-/toldberegning (se normalize.compute_landed_price_dkk).
+_CURRENCY_TO_COUNTRY = {"DKK": "DK", "SEK": "SE", "NOK": "NO"}
+
+
+def _parse_price(price_text: str) -> tuple[float, str] | None:
+    """Returnerer (beløb, valutakode) eller None. Se modulets kommentar
+    ovenfor for hvorfor dette IKKE længere er DKK-kun."""
+    m = _PRICE_PATTERN.search(price_text or "")
     if not m:
         return None
     amount_str = m.group(1).replace(" ", "").replace("\xa0", "").replace(".", "").replace(",", "")
     try:
-        return float(amount_str)
+        amount = float(amount_str)
     except ValueError:
         return None
+    # "0 DKK"/"0 NOK" betyder "intet bud endnu", ikke en reel pris -- ville
+    # ellers blive gemt som et absurd godt tilbud og forkert klassificeret.
+    if amount <= 0:
+        return None
+    return amount, m.group(2).upper()
 
 
 def _parse_listing_cards(page):
@@ -120,17 +145,18 @@ def fetch(config: dict, dry_run: bool = False) -> list[dict]:
                         break
 
                     for card in cards:
-                        amount = _parse_price(card["price_text"])
-                        if amount is None:
+                        parsed = _parse_price(card["price_text"])
+                        if parsed is None:
                             continue
+                        amount, currency = parsed
                         raw_listings.append(
                             {
                                 "title": card["title"],
                                 "description": "",
                                 "price_amount": amount,
-                                "price_currency": "DKK",
+                                "price_currency": currency,
                                 "url": card["url"],
-                                "origin_country_code": "DK",
+                                "origin_country_code": _CURRENCY_TO_COUNTRY.get(currency, "DK"),
                                 "extra": {
                                     "search_term": term,
                                     "source_page": url,

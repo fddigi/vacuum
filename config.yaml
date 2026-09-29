@@ -8,7 +8,16 @@ sources:
   guloggratis: true
   kleinanzeigen: true
   blocket: true
-  vinted: true       # lavt forventet udbytte (tøj-/livsstils-markedsplads), se sources/vinted.py
+  vinted: false      # DEAKTIVERET 2026-09-29 (Opus-review): det offentlige
+                     # /api/v2/*-endpoint svarer 404 på alt, bekræftet live
+                     # (samme fund som modulets egen docstring fra 2026-09-19
+                     # allerede advarede om -- ingen regression). En browser-
+                     # baseret omvej VIRKER (156 hits på "nilfisk"), men
+                     # udbuddet er forbrugerstøvsugere/robotstøvsugere/
+                     # tilbehør (Dyson, Roomba, støvsugerposer), intet
+                     # industri-H-klasse -- en Playwright-omskrivning (~80
+                     # linjer + ny watchdog-timeout) betaler sig ikke for
+                     # denne kategori. Se sources/vinted.py for detaljer.
   klaravik: true
   auktionshuset: true  # "dab.dk" i den oprindelige spec -- stærkeste fund ved research
   retrade: true        # lavt forventet udbytte (tung erhvervsmaskineri), se sources/retrade.py
@@ -140,6 +149,7 @@ vinted:
 currency:
   eur_dkk: 7.46
   sek_dkk: 0.70
+  nok_dkk: 0.64   # retrade.eu noterer norske auktions-lots i NOK (Opus-review 2026-09-29)
   usd_dkk: 6.90
 
 # Import-omkostninger for sælgere UDENFOR EU/EØS. I praksis sjældent relevant

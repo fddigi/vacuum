@@ -367,6 +367,8 @@ def to_dkk(amount: float, currency: str, rates: dict) -> float:
         return amount * rates["eur_dkk"]
     if currency == "SEK":
         return amount * rates["sek_dkk"]
+    if currency == "NOK":
+        return amount * rates["nok_dkk"]
     if currency == "USD":
         return amount * rates["usd_dkk"]
     raise ValueError(f"Ukendt valuta: {currency}")

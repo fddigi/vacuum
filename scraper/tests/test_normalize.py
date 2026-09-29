@@ -12,7 +12,16 @@ from scraper.normalize import (
     extract_soft_signals,
     is_accessory_or_rental,
     is_accessory_title,
+    to_dkk,
 )
+
+
+def test_to_dkk_supports_nok():
+    """Regression -- Opus-review 2026-09-29: retrade.eu noterer norske
+    auktions-lots i NOK, som to_dkk() tidligere ikke kendte (raise
+    ValueError, ville have væltet hele kildens kørsel, se retrade.py)."""
+    rates = {"eur_dkk": 7.46, "sek_dkk": 0.70, "nok_dkk": 0.64, "usd_dkk": 6.90}
+    assert to_dkk(1000, "NOK", rates) == 640.0
 
 
 def test_whitelist_h_models_matched_correctly():

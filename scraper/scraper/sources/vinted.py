@@ -36,6 +36,19 @@ import-omkostninger" (samme fallback som en bekræftet EU-sælger).
 
 Fejler ALDRIG hele scriptet: bot-wall/parsefejl logges og giver blot en tom
 liste (eller springer det enkelte hit over).
+
+DEAKTIVERET I config.yaml 2026-09-29 (Opus-review, live-bekræftet 2026-09-29 --
+ingen regression siden ovenstående 2026-09-19-fund): '/api/v2/*' svarer 404 på
+ALLE forsøgte endpoints (catalog/items, items, catalog/filters, search), også
+med fulde browser-headers (Referer/Sec-Fetch-*/X-Requested-With/x-anon-id) og
+på vinted.com. En Playwright-baseret DOM-scrape af selve søgesiden (forslaget
+ovenfor) blev testet og VIRKER teknisk (a[href*="/items/"], 156 hits på
+"nilfisk") -- men udbuddet er forbrugerstøvsugere/robotstøvsugere/tilbehør
+("Nilfisk One", "Dyson V11 Absolute", "iRobot Roomba 865",
+"5 styks Nilfisk støvsugerposer"), ingen industri-H/M-klasse fundet. En
+omskrivning (~80 linjer + ny SOURCE_TIMEOUT_OVERRIDES-post i main.py) blev
+derfor vurderet ikke at betale sig for denne varekategori. Denne fil er
+bevaret uændret (ikke slettet) hvis nogen senere vil forsøge omskrivningen.
 """
 
 import logging
