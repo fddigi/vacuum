@@ -17,9 +17,12 @@ from scraper.normalize import (
 
 def test_whitelist_h_models_matched_correctly():
     cases = {
-        "Kärcher NT 35/1 Tact Te H - god stand": ("karcher_nt35_1_tact_te_h", "H", True),
+        # RETTET 2026-09-28 (stovsuger-modeloversigt.md): Kärcher og Festool er
+        # fjernet fra models.py's asbestos-brand-blanket-default -- se
+        # models.py's docstring. Begge forventer nu None (ukendt), ikke True.
+        "Kärcher NT 35/1 Tact Te H - god stand": ("karcher_nt35_1_tact_te_h", "H", None),
         "Nilfisk Attix 33-2H IC pæn": ("nilfisk_attix_33_2h", "H", True),
-        "Festool CTH 26 EI byggestøvsuger": ("festool_cth26ei", "H", True),
+        "Festool CTH 26 EI byggestøvsuger": ("festool_cth26ei", "H", None),
         "Hilti VC 40H-X byggestøvsuger": ("hilti_vc40h_x", "H", False),
     }
     for text, (expected_key, expected_class, expected_asbestos) in cases.items():

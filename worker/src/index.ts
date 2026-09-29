@@ -95,6 +95,59 @@ app.get("/api/me", requireAuth, (c) => {
 
 const DEFAULT_CATEGORY = "Sikkerhedsstøvsuger";
 
+// Prioriterede modeller (2026-09-28, brugerens stovsuger-modeloversigt.md,
+// afsnit 3A/3B/3C) -- samme model_keys som scraper/scraper/models.py's
+// priority_stars-felt (3=A/2=B/1=C), se scraper.models.priority_model_keys().
+// Duplikeret her fordi Worker'en er TypeScript, ikke Python (samme princip
+// som config.yaml's søgetermer duplikerer models.py's whitelist) -- hold i
+// sync hvis priority_stars ændres i models.py.
+const PRIORITY_3_STARS = [
+  "bona_dcs25",
+  "flex_vce44h_ac",
+  "nilfisk_attix_30_0h",
+  "nilfisk_attix_30_2h",
+  "nilfisk_attix_33_2h",
+  "nilfisk_attix_44_2h",
+  "nilfisk_attix_50_0h",
+  "nilfisk_attix_550_0h",
+  "nilfisk_attix_751_0h",
+  "nilfisk_attix_965",
+  "nilfisk_attix_995",
+  "nilfisk_ivb5h",
+  "nilfisk_ivb7h",
+  "nilfisk_ivb965_sd_xc",
+  "ronda_h_serie",
+  "starmix_isc_h1225_asbest",
+];
+const PRIORITY_2_STARS = ["nilfisk_aero_21h", "nilfisk_aero_26_2h_pc"];
+const PRIORITY_1_STAR = [
+  "bosch_gas35h_afc",
+  "bygma_isc_h163_safe",
+  "festool_cth26e",
+  "festool_cth26ei",
+  "festool_cth48e",
+  "hilti_vc40h_x",
+  "karcher_nt_h_serie",
+  "makita_vc3211h",
+  "metabo_asa30h_pc",
+  "metabo_asr35h_acp",
+  "starmix_energetic_1420h",
+  "starmix_energetic_sx110080h",
+  "starmix_ipulse_h1635_safe_plus",
+  "starmix_isc_h1625",
+];
+
+function sqlInList(keys: string[]): string {
+  return keys.map((k) => `'${k}'`).join(", ");
+}
+
+const PRIORITET_CASE_SQL = `CASE
+  WHEN model_key IN (${sqlInList(PRIORITY_3_STARS)}) THEN 3
+  WHEN model_key IN (${sqlInList(PRIORITY_2_STARS)}) THEN 2
+  WHEN model_key IN (${sqlInList(PRIORITY_1_STAR)}) THEN 1
+  ELSE 0
+END AS prioritet`;
+
 async function ensureColumn(
   db: ReturnType<typeof getDbClient>,
   table: string,
@@ -116,7 +169,17 @@ app.get("/api/listings", requireAuth, async (c) => {
   // Filtre matcher en fremtidig frontend-dropdown for vurdering/mærke/kilde.
   const vurdering = c.req.query("vurdering");
   const brand = c.req.query("brand");
-  const source = c.req.query("source");
+  // "sources" (flertal, komma-separeret) erstatter den tidligere ental-
+  // dropdown "source" (2026-09-28) -- frontend'en håndterer nu hver kilde
+  // uafhængigt via afkrydsningsfelter (bl.a. så kleinanzeigen kan slås fra
+  // som default, se frontend/index.html), i stedet for ét enkelt valg.
+  const sourcesParam = c.req.query("sources");
+  const sources = sourcesParam
+    ? sourcesParam
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : null;
   const dustClass = c.req.query("dust_class");
   const includeDismissed = c.req.query("include_dismissed") === "1";
   const validatedOnly = c.req.query("validated") === "1";
@@ -134,9 +197,9 @@ app.get("/api/listings", requireAuth, async (c) => {
     conditions.push("brand = ?");
     args.push(brand);
   }
-  if (source) {
-    conditions.push("source = ?");
-    args.push(source);
+  if (sources && sources.length > 0) {
+    conditions.push(`source IN (${sources.map(() => "?").join(", ")})`);
+    args.push(...sources);
   }
   if (dustClass) {
     conditions.push("dust_class = ?");
@@ -161,11 +224,16 @@ app.get("/api/listings", requireAuth, async (c) => {
   // (typisk auktioner uden aktuelt bud) sidst i stedet for først (SQLite
   // sorterer NULL som den laveste værdi som standard, hvilket ellers ville
   // give en tom pris "billigst").
-  const sort = c.req.query("sort") === "newest" ? "newest" : "price_asc";
+  const sortParam = c.req.query("sort");
+  const sort = sortParam === "newest" || sortParam === "priority" ? sortParam : "price_asc";
   const orderBy =
     sort === "newest"
       ? "first_seen DESC"
-      : "price_dkk IS NULL, price_dkk ASC, first_seen DESC";
+      : sort === "priority"
+        // SQLite tillader ORDER BY på en SELECT-liste-alias (se "prioritet"
+        // nedenfor) -- ingen grund til at duplikere CASE-udtrykket her.
+        ? "prioritet DESC, price_dkk IS NULL, price_dkk ASC"
+        : "price_dkk IS NULL, price_dkk ASC, first_seen DESC";
 
   args.push(limit);
 
@@ -198,6 +266,7 @@ app.get("/api/listings", requireAuth, async (c) => {
     sql: `SELECT listings.*,
       (julianday('now') - julianday(first_seen)) >= 30 AS forhandlingsmulighed,
       (model_key IS NOT NULL AND klasse_kilde = 'modelnavn' AND dust_class = 'H') AS valideret,
+      ${PRIORITET_CASE_SQL},
       (SELECT pct_change FROM price_history ph
         WHERE ph.item_key = listings.item_key ORDER BY ph.id DESC LIMIT 1) AS latest_price_drop_pct,
       (SELECT observed_at FROM price_history ph

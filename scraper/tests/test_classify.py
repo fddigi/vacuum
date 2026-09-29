@@ -104,9 +104,7 @@ def test_weak_evidence_with_known_brand_is_se_naermere_not_afvis():
     blot ikke har den præcise variant af endnu ("44-0H" findes ikke, kun
     "44-2H") -- her SKAL et kendt mærke stadig give 'se nærmere', ikke
     afvises, da vi ikke kan udelukke det er en reel H-model."""
-    listing = _listing(
-        "Nilfisk Attix 44-0H industristøvsuger blå", "Pæn stand", 2000
-    )
+    listing = _listing("Nilfisk Attix 44-0H industristøvsuger blå", "Pæn stand", 2000)
     assert listing["dust_class"] == "ukendt"  # præcis denne variant er IKKE i whitelisten
     assert listing["known_brand_mentioned"] is True
     result = classify(listing, TEST_CONFIG)
@@ -205,9 +203,7 @@ def test_70pct_rule_uses_raw_price_not_price_plus_filter_estimate():
     brugt-pris (1.500 kr.) til en automatisk afvisning, fordi 2.300 kr. >
     70% af 2.349 kr. Nu tjekkes selve udbudsprisen alene."""
     config = {**TEST_CONFIG, "prislofter": {**TEST_CONFIG["prislofter"]}}
-    listing = _listing(
-        "Metabo ASA 30 H PC sælges, komplet med slange og filter", "", 1500
-    )
+    listing = _listing("Metabo ASA 30 H PC sælges, komplet med slange og filter", "", 1500)
     assert listing["price_new_dkk_low"] == 2349
     result = classify(listing, config)
     assert result["vurdering"] != "afvis", result
@@ -220,9 +216,7 @@ def test_70pct_rule_skipped_entirely_for_confirmed_unused_machine():
     slid/afskrivning på en BRUGT maskine, en kategorifejl for en ny en).
     'Nilfisk AERO 26-2H PC NU KUN 2.995 KR, fabriksny' (nypris 3.100-3.500)
     blev tidligere afvist alene på 70%-reglen."""
-    listing = _listing(
-        "Nilfisk AERO 26-2H PC NU KUN 2.995 KR fabriksny", "", 2995
-    )
+    listing = _listing("Nilfisk AERO 26-2H PC NU KUN 2.995 KR fabriksny", "", 2995)
     assert listing["unused_machine"] is True
     result = classify(listing, TEST_CONFIG)
     assert "70%" not in " ".join(result["mangler_info"])

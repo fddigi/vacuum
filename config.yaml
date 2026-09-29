@@ -38,31 +38,60 @@ search_terms:
     - "Sicherheitssauger Klasse H"
     - "Asbestsauger"
     - "klass H"
-  # Modelwhitelistens ~68 mærke+model-kombinationer, søgt hver for sig (spec:
+  # Modelwhitelistens ~74 mærke+model-kombinationer, søgt hver for sig (spec:
   # "søg hver enkelt separat"). Genereret fra scraper/scraper/models.py --
   # hold denne liste i sync hvis models.py's whitelist ændres (der er bevidst
   # ingen automatisk kodegenerering her, for at YAML'en forbliver menneske-
   # læselig og selvstændigt redigerbar uden at køre Python).
+  #
+  # PRIORITERET (2026-09-28, stovsuger-modeloversigt.md, afsnit 3A/3B/3C):
+  # brugeren har bedt om at disse modeller -- den kuraterede, kildebelagte
+  # gennemgang af hvad der reelt er asbestgodkendt -- prioriteres, så de
+  # altid nås inden for watchdog-/søgebudgettet selv på en dårlig dag.
+  # Samme model_keys er tagget med priority_stars i models.py (3=A/2=B/1=C),
+  # se scraper.models.priority_model_keys(). De tre grupper herunder står
+  # FØRST, i stjerne-rækkefølge (3A > 3B > 3C), resten af whitelisten følger
+  # bagefter i uændret rækkefølge.
   secondary:
+    # --- 3A: asbestgodkendt MED sikkerhedspose (★★★, bedste kategori) ---
+    - "Nilfisk Attix 33-2H"
     - "Nilfisk Attix 30-0H"
     - "Nilfisk Attix 30-2H"
-    - "Nilfisk Attix 33-2H"
     - "Nilfisk Attix 44-2H"
     - "Nilfisk Attix 50-0H"
-    - "Nilfisk Attix 550-0H"
     - "Nilfisk Attix 751-0H"
     - "Nilfisk Attix 965"
     - "Nilfisk Attix 995"
-    - "Nilfisk AERO 26-2H"
+    - "Nilfisk Attix 550-0H"
     - "Nilfisk IVB 5 H"
     - "Nilfisk IVB 7 H"
+    - "Nilfisk IVB 965"
+    - "Flex VCE 44 H AC"
+    - "Ronda"  # brand-alene: modelnumre spreder sig for bredt (80H/200H/1800H/2800H)
+    - "Bona DCS 25"
+    - "Starmix ISC H-1225"
+    # --- 3B: asbest tilladt, INGEN sikkerhedspose (★★) ---
+    - "Nilfisk AERO 26-2H"
+    - "Nilfisk AERO 21 H"
+    # --- 3C: H-klasse, men asbest forbudt eller gråzone (★) ---
+    - "Metabo ASA 30 H PC"
+    - "Metabo ASR 35 H ACP"
+    - "Hilti VC 40H-X"
+    - "Makita VC3211H"  # brugerens top-anbefaling ved negative asbestprøver
+    - "Starmix ISC H-1625"
+    - "Starmix iPulse H-1635 Safe Plus"
+    - "Bygma ISC H-163 Safe"
+    - "Starmix Energetic 1420 H"
+    - "Starmix Energetic SX-110080 H"
+    - "Bosch GAS 35 H AFC"
+    - "Festool CTH 26"
+    - "Festool CTH 48"
+    # --- Resten af whitelisten (ikke i 3A/3B/3C, uændret prioritet) ---
     - "Kärcher NT 30/1 Tact Te H"
     - "Kärcher NT 30/1 Ap Te H"
     - "Kärcher NT 35/1 Tact Te H"
     - "Kärcher NT 50/1 Tact Te H"
     - "Kärcher NT 75/1 Tact Me H"
-    - "Festool CTH 26"
-    - "Festool CTH 48"
     - "Protool VCP 260 E-H"
     - "Protool VCP 480 E-H"
     - "Starmix ISC H 1425"
@@ -73,12 +102,8 @@ search_terms:
     - "Starmix iPulse H-1235"
     - "Starmix GS H-1232"
     - "Starmix HS AR-1635 EHP"
-    - "Starmix Energetic 1420 H"
     - "Starmix Vaccufix H"
-    - "Bosch GAS 35 H AFC"
     - "Flex VCE 33 H AC"
-    - "Flex VCE 44 H AC"
-    - "Metabo ASA 30 H PC"
     - "Eibenstock DSS 35 HIP"
     - "Numatic HZ200"
     - "Numatic HZ370"
@@ -88,8 +113,6 @@ search_terms:
     - "Husqvarna S26"
     - "Dustcontrol DC Tromb 400 H"
     - "Ruwac NA7-26"
-    - "Hilti VC 40H-X"
-    - "Ronda 2800 H"
     # M-klasse SØGEORD BEVIDST FJERNET (Opus 5-gennemgang, 2026-09-20):
     # brugeren har afklaret at kun H-klasse reelt har interesse i praksis.
     # De 25 M-termer brugte ~1/3 af søgebudgettet (playwright.max_pages_total
@@ -177,10 +200,10 @@ playwright:
   min_delay_s: 3
   max_delay_s: 8
   max_pages_per_term: 3
-  # ~75 søgetermer (7 generiske + 68 modelspecifikke) på tværs af 6
-  # Playwright-baserede kilder -- sat højt nok til at nå hele listen inden for
-  # ét launchd-interval (6 timer), se main.py's SOURCE_TIMEOUT_OVERRIDES for
-  # Kleinanzeigens separate watchdog-forlængelse.
+  # 63 søgetermer (7 generiske + 56 modelspecifikke, opdateret 2026-09-28) på
+  # tværs af 6 Playwright-baserede kilder -- sat højt nok til at nå hele
+  # listen inden for ét launchd-interval (6 timer), se main.py's
+  # SOURCE_TIMEOUT_OVERRIDES for Kleinanzeigens separate watchdog-forlængelse.
   max_pages_total: 80
 
 db_path: "./data/local.db"

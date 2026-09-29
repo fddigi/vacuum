@@ -1,10 +1,11 @@
 """Model-database for sikkerhedsstøvsugere (støvklasse H/M).
 
-Kilde: brugerens agent-spec (whitelist/blacklist/referencebilag, sektion 2.1-2.8).
-Al metadata (dust_class, container_l, price_new_dkk, asbestos_approved) er
-transskriberet direkte fra specens tabeller hvor den findes -- se den enkelte
-entrys "note" for hvor tallet kommer fra, og verificér selv før en købsbeslutning
-(specen selv opfordrer til at tjekke typeskiltet fysisk, se docs-sektion 2.9).
+Kilde: brugerens agent-spec (whitelist/blacklist/referencebilag, sektion 2.1-2.8),
+udvidet 2026-09-28 med brugerens egen "stovsuger-modeloversigt.md" (kælderrenovering,
+Slotsherrensvej) -- en langt mere kildebelagt gennemgang (fabrikant-datablade/manualer
+citeret direkte) af hvilke H-modeller der reelt er asbestgodkendt. Al metadata
+(dust_class, container_l, price_new_dkk, asbestos_approved) er transskriberet fra den
+kilde der har stærkest dokumentation for netop den model -- se hver entrys "note".
 
 Disambiguerings-princip (samme som PASPEAKERS' normalize.py:MODEL_PATTERNS):
 mere specifikke mønstre before generiske, extract_model() i normalize.py
@@ -12,15 +13,32 @@ returnerer FØRSTE match i WHITELIST -- rækkefølgen her er derfor selve
 disambigueringen for modeller med overlappende tal (fx "Attix 33-2H" vs
 "Attix 33-2M").
 
-asbestos_approved-generalisering (spec-sektion 2.1): "Nilfisk, Kärcher, Festool,
-Flex og Starmix' H-maskiner har den [asbestgodkendelse]" -- brugt som DEFAULT for
-disse brands' H-modeller nedenfor, medmindre specen selv angiver andet for netop
-den model. Hilti er eksplicit IKKE godkendt til asbest (spec, begge steder VC-
-serien nævnes). For brands specen ikke nævner i denne sætning (Protool, Metabo,
-Eibenstock, Numatic, Ermator, Dustcontrol, Ruwac, Bosch, Milwaukee, Makita, Fein,
-Mirka, Ronda) er asbestos_approved sat til None ("ukendt") medmindre specen har en
-model-specifik note -- dette ER en antagelse lagt oven på specens tekst, ikke en
-direkte oplyst kendsgerning, og bør kunne overskrives af brugeren.
+asbestos_approved-generalisering -- RETTET 2026-09-28 (bruger-beslutning efter
+krydstjek mod stovsuger-modeloversigt.md): den oprindelige spec antog at ALLE
+Nilfisk/Kärcher/Festool/Flex/Starmix H-maskiner er asbestgodkendt. Brugerens egen,
+langt mere grundige gennemgang (fabrikant-datablade citeret direkte, ikke
+forhandlertekst) bekræfter dette kun for:
+  - Nilfisk: specifikke Attix-modeller med "Asbest"/IC/PC i navnet (varenr.
+    107412183 m.fl., "Dust class M and H certification including Asbestos")
+  - Flex: VCE 44 H AC ("inkl. Asbest" på fabrikantens datablad)
+Kärcher, Festool og Starmix er DERIMOD IKKE bekræftet som brand-brede godkendelser --
+modeloversigten placerer netop disse tre mærkers H-modeller i kategori C ("H-klasse,
+men asbest forbudt eller gråzone"). Blanket-defaulten er derfor indsnævret til kun
+Nilfisk+Flex. Enkelte specifikke modeller med eksplicit "Asbest" i selve produktnavnet
+(fx Starmix ISC H-1225 Asbest) beholder asbestos_approved=True via en EKSPLICIT
+override på netop den entry, ikke via brand-default. For brands specen aldrig nævnte
+i denne sammenhæng (Protool, Metabo, Eibenstock, Numatic, Ermator, Dustcontrol, Ruwac,
+Bosch, Milwaukee, Makita, Fein, Mirka, Ronda, Bona, Bygma) er asbestos_approved None
+("ukendt") medmindre en specifik note angiver andet -- dette ER en antagelse lagt
+oven på kildernes tekst, og bør kunne overskrives af brugeren.
+
+priority_stars -- NYT FELT (2026-09-28): brugerens stovsuger-modeloversigt.md,
+afsnit 3, grupperer modeller efter dom i A/B/C/D/E/F/G. Brugeren har bedt om at A/B/C
+(de tre kategorier der faktisk er H-klasse og relevante for et asbestjob) prioriteres
+i overblikket -- 3=A (asbestgodkendt MED sikkerhedspose, bedste kategori), 2=B (asbest
+tilladt, ingen sikkerhedspose), 1=C (H-klasse, men asbest forbudt/gråzone), 0=ikke i
+denne kuraterede liste (upåvirket, almindelig H/M-model). Bruges til søgeprioritering
+(config.yaml) og en "★"-badge i frontend'en (se worker/src/index.ts' "prioritet"-felt).
 """
 
 from __future__ import annotations
@@ -28,10 +46,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-# Brands specen generaliserer som asbestgodkendt for deres H-klasse-maskiner
-# (sektion 2.1). Bruges kun som DEFAULT -- en model-specifik asbestos_approved
-# nedenfor vinder altid over dette.
-_ASBESTOS_APPROVED_H_BRANDS = frozenset({"Nilfisk", "Kärcher", "Festool", "Flex", "Starmix"})
+# Brands den oprindelige spec generaliserede som asbestgodkendt for deres H-klasse-
+# maskiner (sektion 2.1) -- INDSNÆVRET 2026-09-28, se modulets docstring ovenfor for
+# hvorfor Kärcher/Festool/Starmix er fjernet fra denne blanket-default.
+_ASBESTOS_APPROVED_H_BRANDS = frozenset({"Nilfisk", "Flex"})
 
 
 @dataclass(frozen=True)
@@ -44,8 +62,9 @@ class ModelEntry:
     container_l: float | None = None
     price_new_dkk_low: float | None = None
     price_new_dkk_high: float | None = None
-    asbestos_approved: bool | None = None  # None = ukendt/ikke oplyst af spec
+    asbestos_approved: bool | None = None  # None = ukendt/ikke oplyst af kilderne
     battery: bool = False  # batterimaskine -- spec: "kun som sekundært fund"
+    priority_stars: int = 0  # 0-3, se modulets docstring ("priority_stars")
     note: str = ""
 
     def __post_init__(self):
@@ -83,6 +102,8 @@ MODEL_WHITELIST: list[ModelEntry] = [
         30,
         2349,
         2349,
+        asbestos_approved=False,
+        priority_stars=1,
         note="Nypris korrigeret til 2.349 kr. efter brugerens egen research "
         "(2026-09-20) -- specens egen tabel havde ikke et præcist tal for "
         "denne model. Brugeren fremhæver den som 'billigst forsvarligt' "
@@ -93,7 +114,22 @@ MODEL_WHITELIST: list[ModelEntry] = [
         "FILTER_CLEANING_PATTERN) -- uafklaret om dette er en generel "
         "unøjagtighed i specen eller specifikt for Metabo. Ikke rettet i "
         "selve scorings-logikken endnu, da 'PC' bruges bredt på tværs af "
-        "andre (Nilfisk-)modeller hvor det kan betyde noget andet.",
+        "andre (Nilfisk-)modeller hvor det kan betyde noget andet. "
+        "asbestos_approved=False tilføjet 2026-09-28: stovsuger-modeloversigt.md "
+        "citerer Metabos egen manual: 'Es dürfen keine asbesthaltigen Stäube "
+        "aufgesaugt werden' -- gælder hele AS/ASA-serien.",
+    ),
+    ModelEntry(
+        "metabo_asr35h_acp",
+        _p(r"\bmetabo\b.{0,20}\basr[\s-]*35[\s-]*h[\s-]*acp\b"),
+        "Metabo",
+        "ASR 35 H ACP",
+        "H",
+        35,
+        asbestos_approved=False,
+        priority_stars=1,
+        note="Ny 2026-09-28 (stovsuger-modeloversigt.md, afsnit 3C): 'Forbudt -- "
+        "samme serie' som ASA 30 H PC.",
     ),
     ModelEntry(
         "nilfisk_aero_26_2h_pc",
@@ -104,6 +140,19 @@ MODEL_WHITELIST: list[ModelEntry] = [
         25,
         3100,
         3500,
+        priority_stars=2,
+    ),
+    ModelEntry(
+        "nilfisk_aero_21h",
+        _p(r"\baero[\s-]*21[\s-]*h\b"),
+        "Nilfisk",
+        "AERO 21 H",
+        "H",
+        21,
+        priority_stars=2,
+        note="Ny 2026-09-28 (stovsuger-modeloversigt.md, afsnit 3B): samme serie "
+        "og samme begrænsning som AERO 26-2H PC (asbest tilladt jf. manual, men "
+        "ingen safety filter bag i reservedelslisten).",
     ),
     ModelEntry(
         "starmix_energetic_1420h",
@@ -114,6 +163,18 @@ MODEL_WHITELIST: list[ModelEntry] = [
         20,
         3500,
         4000,
+        priority_stars=1,
+    ),
+    ModelEntry(
+        "starmix_energetic_sx110080h",
+        _p(r"\bsx[\s-]*-?\s*110080[\s-]*h\b"),
+        "Starmix",
+        "Energetic SX-110080 H",
+        "H",
+        None,
+        priority_stars=1,
+        note="Ny 2026-09-28 (stovsuger-modeloversigt.md, afsnit 3C): 'Til "
+        "kvartsstøv. Asbeststatus ikke dokumenteret.'",
     ),
     ModelEntry(
         "starmix_isc_1418_mini_h",
@@ -136,7 +197,24 @@ MODEL_WHITELIST: list[ModelEntry] = [
         25,
         4400,
         6500,
-        note="Spec nævner eksplicit 'Asbest' i navnet -- asbestgodkendt.",
+        asbestos_approved=True,
+        note="Spec nævner eksplicit 'Asbest' i navnet -- asbestgodkendt. "
+        "asbestos_approved gjort EKSPLICIT 2026-09-28 (ikke længere via "
+        "Starmix-brand-default, se modulets docstring) -- navnets egen "
+        "'Asbest'-mærkning er uafhængig af brand-spørgsmålet.",
+    ),
+    ModelEntry(
+        "starmix_isc_h1225_asbest",
+        _p(r"\bisc[\s-]*h?[\s-]*-?\s*1225\b"),
+        "Starmix",
+        "ISC H-1225 Asbest",
+        "H",
+        25,
+        asbestos_approved=True,
+        priority_stars=3,
+        note="Ny 2026-09-28 (stovsuger-modeloversigt.md, afsnit 3A): 'Eneste "
+        "ISC-variant, hvor manualen tillader asbest.' Adskil fra ISC H-1625 "
+        "(nedenfor), som manualen eksplicit lister som en ANDEN maskine.",
     ),
     ModelEntry(
         "flex_vce33h_ac",
@@ -161,6 +239,10 @@ MODEL_WHITELIST: list[ModelEntry] = [
         30,
         6100,
         8500,
+        priority_stars=3,
+        note="stovsuger-modeloversigt.md (2026-09-28), afsnit 3A: 'ASBES' i "
+        "produktnavnet, varenr. 107412183, 'Dust class M and H certification "
+        "including Asbestos' -- brugerens top-anbefaling for nykøb (4.999 kr.).",
     ),
     ModelEntry(
         "nilfisk_attix_30_0h",
@@ -171,6 +253,7 @@ MODEL_WHITELIST: list[ModelEntry] = [
         30,
         6000,
         8000,
+        priority_stars=3,
     ),
     ModelEntry(
         "nilfisk_attix_30_2h",
@@ -181,6 +264,7 @@ MODEL_WHITELIST: list[ModelEntry] = [
         30,
         6000,
         8500,
+        priority_stars=3,
     ),
     ModelEntry(
         "eibenstock_dss35hip",
@@ -221,6 +305,7 @@ MODEL_WHITELIST: list[ModelEntry] = [
         35,
         7200,
         9400,
+        priority_stars=1,
     ),
     ModelEntry(
         "festool_cth26ei",
@@ -231,6 +316,7 @@ MODEL_WHITELIST: list[ModelEntry] = [
         26,
         8300,
         10000,
+        priority_stars=1,
     ),
     ModelEntry(
         "hilti_vc40h_x",
@@ -240,6 +326,7 @@ MODEL_WHITELIST: list[ModelEntry] = [
         "H",
         30,
         asbestos_approved=False,
+        priority_stars=1,
         note="Spec: 'flag: ikke asbestgodkendt' -- Hilti fraskriver sig eksplicit asbest.",
     ),
     # --- H-klasse, store 40-75 l (spec-tabel 2.3) ---
@@ -262,6 +349,9 @@ MODEL_WHITELIST: list[ModelEntry] = [
         42,
         6800,
         13400,
+        priority_stars=3,
+        note="stovsuger-modeloversigt.md (2026-09-28), afsnit 3A: 'inkl. Asbest' "
+        "på fabrikantens datablad.",
     ),
     ModelEntry(
         "starmix_ipulse_safe1635ew_h",
@@ -274,12 +364,26 @@ MODEL_WHITELIST: list[ModelEntry] = [
         8100,
     ),
     ModelEntry(
+        "starmix_ipulse_h1635_safe_plus",
+        _p(r"\bipulse[\s-]*h[\s-]*-?\s*1635[\s-]*safe(?:[\s-]*plus)?\b"),
+        "Starmix",
+        "iPulse H-1635 Safe Plus",
+        "H",
+        35,
+        priority_stars=1,
+        note="Ny 2026-09-28 (stovsuger-modeloversigt.md, afsnit 3C): 'Uafklaret "
+        "-- markedsføres til asbest, men kun af forhandlere. Få det på skrift "
+        "fra importøren før køb.' Adskilt model_key fra 'iPulse Safe 1635 EW H' "
+        "ovenfor -- forskellig ordstilling i navnet, ikke bekræftet samme maskine.",
+    ),
+    ModelEntry(
         "festool_cth48e",
         _p(r"\bcth[\s-]*48[\s-]*e\b(?!i)"),
         "Festool",
         "CTH 48 E",
         "H",
         48,
+        priority_stars=1,
         note="Samme modelnavn optræder i spec både som 'i produktion' (tabel 2.3) "
         "og udgået m. artikelnr. 576908 (tabel 2.5) -- én model_key her.",
     ),
@@ -292,6 +396,7 @@ MODEL_WHITELIST: list[ModelEntry] = [
         47,
         12500,
         16750,
+        priority_stars=3,
     ),
     ModelEntry(
         "nilfisk_attix_751_0h",
@@ -300,6 +405,7 @@ MODEL_WHITELIST: list[ModelEntry] = [
         "Attix 751-0H (Asbest)",
         "H",
         70,
+        priority_stars=3,
         note="Spec nævner eksplicit 'Asbest' i navnet.",
     ),
     ModelEntry(
@@ -309,7 +415,19 @@ MODEL_WHITELIST: list[ModelEntry] = [
         "Attix 965-0H/M SD XC",
         "H",
         70,
+        priority_stars=3,
         note="Spec skriver '0H/M' -- dual-klasse-betegnelse, matchet som H her.",
+    ),
+    ModelEntry(
+        "nilfisk_ivb965_sd_xc",
+        _p(r"\bivb[\s-]*965\b"),
+        "Nilfisk",
+        "IVB 965 SD XC",
+        "H",
+        70,
+        priority_stars=3,
+        note="Ny 2026-09-28 (stovsuger-modeloversigt.md, afsnit 3A): tysk "
+        "navngivning for Attix 965-serien -- samme maskine.",
     ),
     ModelEntry(
         "karcher_nt75_1_tact_me_h",
@@ -345,7 +463,25 @@ MODEL_WHITELIST: list[ModelEntry] = [
         "H-serie (verificér typeskilt)",
         "H",
         None,
-        note="Generisk Ronda-H-mønster, se kommentar ovenfor -- ikke fra specen selv.",
+        priority_stars=3,
+        note="Generisk Ronda-H-mønster, se kommentar ovenfor -- ikke fra specen "
+        "selv. stovsuger-modeloversigt.md (2026-09-28, afsnit 3A) bekræfter "
+        "RONDA 200H Power og 80H/80H25 som asbestgodkendt m. sikkerhedspose "
+        "(Brøndums datablad) -- dækket generisk af dette mønster.",
+    ),
+    ModelEntry(
+        "bona_dcs25",
+        _p(r"\bbona\b.{0,15}\bdcs[\s-]*25\b"),
+        "Bona",
+        "DCS 25",
+        "H",
+        16,
+        asbestos_approved=True,
+        priority_stars=3,
+        note="Ny 2026-09-28 (stovsuger-modeloversigt.md, afsnit 3A): 'Manual "
+        "nævner asbest, plastsæk min. 100 µm specificeret.' Intet H/M i selve "
+        "modelnavnet, men brand+modelnummer er specifikt nok (samme princip "
+        "som ermator_s26/husqvarna_s26 nedenfor).",
     ),
     # --- H-klasse, batteri (spec-tabel 2.4) -- sekundært fund jf. spec ---
     ModelEntry(
@@ -365,6 +501,20 @@ MODEL_WHITELIST: list[ModelEntry] = [
         "plastsæk der opfylder Arbejdstilsynets asbestkrav.",
     ),
     ModelEntry(
+        "starmix_isc_h1625",
+        _p(r"\bisc[\s-]*h[\s-]*-?\s*1625\b|\bisc[\s-]*1625[\s-]*h\b"),
+        "Starmix",
+        "ISC H-1625",
+        "H",
+        25,
+        asbestos_approved=False,
+        priority_stars=1,
+        note="Ny 2026-09-28 (stovsuger-modeloversigt.md, afsnit 3C): 'Ikke "
+        "asbestvarianten -- manualen lister ISC H-1625 og ISC H-1225 Asbest "
+        "som to maskiner.' Mønster kræver INGEN 'mpb' mellem 1625 og H, så "
+        "kolliderer ikke med ISC 1625 MPB H (batteri-variant) ovenfor.",
+    ),
+    ModelEntry(
         "starmix_vaccufix_h",
         _p(r"\bvaccufix[\s-]*h\b"),
         "Starmix",
@@ -382,8 +532,13 @@ MODEL_WHITELIST: list[ModelEntry] = [
         "NT 35/1 Tact Te H",
         "H",
         35,
-        note="Spec: 'Udløb 2018. Asbestgodkendt. Bedste brugtjagt' -- højeste "
-        "prioritet blandt Kärcher-modellerne.",
+        note="Spec: 'Udløb 2018. Bedste brugtjagt.' RETTET 2026-09-28: "
+        "asbestos_approved sat til ukendt (ikke længere True) -- den "
+        "oprindelige specs 'Asbestgodkendt'-påstand for denne model er en "
+        "brand-niveau-antagelse, som brugerens langt mere kildebelagte "
+        "stovsuger-modeloversigt.md IKKE bekræfter (Kärcher NT...H placeres "
+        "der i kategori C, 'forbudt eller gråzone', uden model-specifik "
+        "dokumentation). Se modulets docstring.",
     ),
     ModelEntry(
         "karcher_nt50_1_tact_te_h",
@@ -400,6 +555,7 @@ MODEL_WHITELIST: list[ModelEntry] = [
         "CTH 26 E (576907)",
         "H",
         26,
+        priority_stars=1,
     ),
     ModelEntry(
         "nilfisk_attix_995",
@@ -408,6 +564,7 @@ MODEL_WHITELIST: list[ModelEntry] = [
         "Attix 995-0H/M SD XC",
         "H",
         70,
+        priority_stars=3,
         note="To motorer, XtremeClean, stål.",
     ),
     ModelEntry(
@@ -417,6 +574,7 @@ MODEL_WHITELIST: list[ModelEntry] = [
         "Attix 44-2H IC",
         "H",
         44,
+        priority_stars=3,
         note="InfiniClean, tretrins filtrering.",
     ),
     ModelEntry(
@@ -426,6 +584,7 @@ MODEL_WHITELIST: list[ModelEntry] = [
         "IVB 5 H",
         "H",
         30,
+        priority_stars=3,
         note="Tysk navn for Attix -- samme maskine.",
     ),
     ModelEntry(
@@ -435,6 +594,7 @@ MODEL_WHITELIST: list[ModelEntry] = [
         "IVB 7 H",
         "H",
         70,
+        priority_stars=3,
         note="Tysk navn for Attix -- samme maskine.",
     ),
     # --- H-klasse, verificér typeskilt (spec-tabel 2.6, lavere tillid) ---
@@ -472,7 +632,22 @@ MODEL_WHITELIST: list[ModelEntry] = [
         "iPulse H-1235 Asbest",
         "H",
         None,
-        note="Spec nævner eksplicit 'Asbest' i navnet.",
+        asbestos_approved=True,
+        note="Spec nævner eksplicit 'Asbest' i navnet. asbestos_approved gjort "
+        "EKSPLICIT 2026-09-28 (ikke længere via Starmix-brand-default, se "
+        "modulets docstring).",
+    ),
+    ModelEntry(
+        "bygma_isc_h163_safe",
+        _p(r"\bbygma\b.{0,20}\bisc[\s-]*h[\s-]*-?\s*163\b"),
+        "Bygma",
+        "ISC H-163 Safe",
+        "H",
+        None,
+        priority_stars=1,
+        note="Ny 2026-09-28 (stovsuger-modeloversigt.md, afsnit 3C): rebrandet "
+        'Starmix. \'Uafklaret -- tjek om typeskiltet bærer "Safe" eller '
+        '"ASBEST".\'',
     ),
     ModelEntry(
         "numatic_hz200",
@@ -511,6 +686,28 @@ MODEL_WHITELIST: list[ModelEntry] = [
         "Attix 550-0H",
         "H",
         None,
+        priority_stars=3,
+    ),
+    # Ny 2026-09-28 (stovsuger-modeloversigt.md, afsnit 3C: "Kärcher NT ... H |
+    # H-klasse | Kun med efterstillet H er en NT H-klasse"). Generisk fallback,
+    # samme princip som ronda_h_serie ovenfor -- fanger NT-modeller uden egen
+    # specifik whitelist-entry (fx "NT 45/1 Tact Te H", set i live-data men
+    # aldrig whitelistet). Placeret SIDST blandt H-entries, så alle specifikke
+    # NT-mønstre ovenfor (som allerede returnerer tidligere i loopet) altid
+    # vinder først. Samme 25-tegns-afstandstærskel som HARD_REJECT_PATTERNS'
+    # "karcher_nt_uden_klassebogstav" bruger til at AFGØRE om et NT-fund har H
+    # i nærheden -- de to mønstre er derfor gensidigt udelukkende: alt dette
+    # matcher ville ALDRIG være blevet hård-afvist alligevel.
+    ModelEntry(
+        "karcher_nt_h_serie",
+        _p(r"\bnt[\s-]*\d{2,3}\s*/\s*\d\b.{0,25}?\bh\b"),
+        "Kärcher",
+        "NT-serie H (verificér typeskilt)",
+        "H",
+        None,
+        priority_stars=1,
+        note="Generisk NT+H-fallback. asbestos_approved bevidst IKKE sat til "
+        "True -- se korrigeret Kärcher-politik i modulets docstring.",
     ),
     # --- M-klasse, kun hvis asbest kan udelukkes (spec-sektion 2.7) ---
     ModelEntry(
@@ -601,6 +798,24 @@ MODEL_WHITELIST: list[ModelEntry] = [
     ),
     ModelEntry("fein_dustex35mx", _p(r"\bdustex[\s-]*35[\s-]*mx\b"), "Fein", "Dustex 35 MX", "M"),
     ModelEntry("mirka_de1230m", _p(r"\bde[\s-]*1230[\s-]*m\b"), "Mirka", "DE 1230 M", "M"),
+    # --- Gråzone, ikke asbestgodkendt (stovsuger-modeloversigt.md, afsnit 3C) ---
+    ModelEntry(
+        "makita_vc3211h",
+        _p(r"\bvc[\s-]*3211[\s-]*h\b"),
+        "Makita",
+        "VC3211H",
+        "H",
+        32,
+        asbestos_approved=None,
+        priority_stars=1,
+        note="Ny 2026-09-28 (stovsuger-modeloversigt.md, afsnit 1+3C): "
+        "brugerens TOP-anbefaling ved negative asbestprøver (2.000 kr. brugt, "
+        "'bedste værkstedsmaskine', dybeste reservedelsnet i DK). Asbeststatus "
+        "'gråzone' -- manualen forbyder ikke, men henviser til myndighederne, "
+        "og kræver dekontaminering hos autoriseret institut efter asbestbrug. "
+        "Ingen sikkerhedspose. asbestos_approved bevidst None (hverken "
+        "godkendt eller forbudt), IKKE False.",
+    ),
 ]
 
 # ---------------------------------------------------------------------------
@@ -733,6 +948,17 @@ def model_search_terms() -> list[str]:
     """Ét søgeord pr. whitelistet model (mærke + label), til brug som
     supplerende søgetermer -- se search_terms.py/config.yaml."""
     return sorted({f"{m.brand} {m.label}".split(" (")[0] for m in MODEL_WHITELIST})
+
+
+def priority_model_keys(min_stars: int = 1) -> list[str]:
+    """model_key for alle whitelistede modeller med priority_stars >= min_stars
+    -- brugt til at eksponere de samme 3A/3B/3C-prioriterede modeller til
+    Worker'en (worker/src/index.ts' "prioritet"-felt) uden at duplikere selve
+    kurateringen der (samme princip som config.yaml's kommentar om hvorfor
+    search_terms IKKE er kodegenereret: Workeren er TypeScript, ikke Python,
+    så en vis duplikering er uundgåelig, men selve listen af NØGLER kan
+    genereres herfra og limes ind, i stedet for at vedligeholdes frit i hånden)."""
+    return sorted(m.key for m in MODEL_WHITELIST if m.priority_stars >= min_stars)
 
 
 # KRITISK FUND (live-test 2026-09-19 mod dba.dk): flere reelle Nilfisk

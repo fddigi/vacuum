@@ -42,6 +42,9 @@
     .dismissed-badge { font-size: 0.78rem; color: #a33; }
     .card.is-dismissed { opacity: 0.6; }
     .checkbox-label { display: flex; align-items: center; gap: 6px; font-size: 0.9rem; }
+    .sources-box { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); }
+    .sources-box .sources-label { color: var(--muted); font-size: 0.8rem; }
+    .badge.prioritet { color: #8a5a00; background: #fff2d1; }
   </style>
 </head>
 <body>
@@ -57,9 +60,6 @@
         <option value="se nærmere">Se nærmere</option>
         <option value="afvis">Afvist</option>
       </select>
-      <select id="filter-source">
-        <option value="">Alle kilder</option>
-      </select>
       <select id="filter-klasse">
         <option value="H" selected>Kun H-klasse</option>
         <option value="">Alle klasser (inkl. M)</option>
@@ -67,6 +67,7 @@
       <select id="sort">
         <option value="price_asc">Sortér: billigst</option>
         <option value="newest">Sortér: nyeste</option>
+        <option value="priority">Sortér: prioritet</option>
       </select>
       <label class="checkbox-label" title="Støvklasse bekræftet via et faktisk modelnavn-match, ikke kun mærkeomtale. Uafhængig af vurdering (køb nu/se nærmere/afvis) - en valideret maskine kan sagtens være afvist på pris.">
         <input type="checkbox" id="show-validated-only" /> Kun validerede
@@ -75,6 +76,14 @@
       <button id="refresh">Opdatér</button>
     </div>
   </div>
+
+  <!-- Kilder håndteres UAFHÆNGIGT af hinanden (afkrydsningsfelter, ikke én
+       fælles dropdown) -- se sources-config nedenfor for hvorfor kleinanzeigen
+       er slået fra som default. -->
+  <div class="sources-box" id="sources-box">
+    <span class="sources-label">Kilder:</span>
+  </div>
+  <div style="height: 12px"></div>
 
   <div id="cards" class="cards"></div>
   <p id="empty" style="display: none">Ingen annoncer matcher filtret endnu.</p>
@@ -114,6 +123,83 @@
       if (vurdering === "køb nu") return "koeb";
       if (vurdering === "se nærmere") return "se";
       return "afvis";
+    }
+
+    // Kilder håndteres uafhængigt af hinanden (2026-09-28): hver kilde er sit
+    // eget afkrydsningsfelt, ikke ét fælles dropdown-valg. kleinanzeigen.de
+    // starter SLUKKET som default -- brugerens egen erfaring: "næsten alle
+    // annoncer her er 'kun afhentning'" (upraktisk for en dansk køber på et
+    // tysk marketplace). Alle andre kilder starter TÆNDT. Valget huskes i
+    // browseren (localStorage), så det ikke nulstilles ved hvert besøg.
+    const ALL_SOURCES = [
+      "dba",
+      "guloggratis",
+      "kleinanzeigen",
+      "blocket",
+      "vinted",
+      "klaravik",
+      "auktionshuset",
+      "retrade",
+    ];
+    const SOURCES_OFF_BY_DEFAULT = new Set(["kleinanzeigen"]);
+    const SOURCES_STORAGE_KEY = "vacuum_source_filters_v1";
+
+    function loadSourcePrefs() {
+      try {
+        const raw = localStorage.getItem(SOURCES_STORAGE_KEY);
+        if (raw) return JSON.parse(raw);
+      } catch {
+        // ignoreres -- falder tilbage til default herunder
+      }
+      const defaults = {};
+      for (const s of ALL_SOURCES) defaults[s] = !SOURCES_OFF_BY_DEFAULT.has(s);
+      return defaults;
+    }
+
+    function saveSourcePrefs(prefs) {
+      try {
+        localStorage.setItem(SOURCES_STORAGE_KEY, JSON.stringify(prefs));
+      } catch {
+        // ignoreres -- kun en bekvemmelighed, ikke kritisk tilstand
+      }
+    }
+
+    function renderSourceCheckboxes() {
+      const box = document.getElementById("sources-box");
+      const prefs = loadSourcePrefs();
+      for (const source of ALL_SOURCES) {
+        const label = document.createElement("label");
+        label.className = "checkbox-label";
+        if (source === "kleinanzeigen") {
+          label.title = "Slået fra som default: næsten alle kleinanzeigen.de-annoncer er 'kun afhentning' i Tyskland.";
+        }
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = prefs[source] !== false;
+        checkbox.dataset.source = source;
+        checkbox.addEventListener("change", () => {
+          const updated = loadSourcePrefs();
+          updated[source] = checkbox.checked;
+          saveSourcePrefs(updated);
+          loadListings();
+        });
+        label.appendChild(checkbox);
+        label.appendChild(document.createTextNode(" " + source));
+        box.appendChild(label);
+      }
+    }
+
+    function checkedSources() {
+      return [...document.querySelectorAll("#sources-box input[type=checkbox]")]
+        .filter((cb) => cb.checked)
+        .map((cb) => cb.dataset.source);
+    }
+
+    function priorityBadge(stars) {
+      const n = Number(stars) || 0;
+      if (n <= 0) return "";
+      const label = { 3: "★★★ prioriteret (A)", 2: "★★ prioriteret (B)", 1: "★ prioriteret (C)" }[n] ?? "";
+      return `<span class="badge prioritet" title="stovsuger-modeloversigt.md, afsnit 3">${label}</span>`;
     }
 
     function formatBool(value) {
@@ -157,6 +243,7 @@
           <div>
             <span class="badge ${badgeClass(row.vurdering)}">${row.vurdering ?? "ukendt"}</span>
             ${validatedBadge}
+            ${priorityBadge(row.prioritet)}
             ${dismissedBadge}
             <div class="title"><a href="${row.url}" target="_blank" rel="noopener">${row.title ?? "(uden titel)"}</a></div>
             <div class="meta">${row.source ?? ""}${row.location ? " · " + row.location : ""} · score ${row.score ?? 0}${ageFlag}</div>
@@ -201,13 +288,22 @@
     async function loadListings() {
       const params = new URLSearchParams();
       const vurdering = document.getElementById("filter-vurdering").value;
-      const source = document.getElementById("filter-source").value;
+      const sources = checkedSources();
       const klasse = document.getElementById("filter-klasse").value;
       const sort = document.getElementById("sort").value;
       const showDismissed = document.getElementById("show-dismissed").checked;
       const validatedOnly = document.getElementById("show-validated-only").checked;
       if (vurdering) params.set("vurdering", vurdering);
-      if (source) params.set("source", source);
+      // Kun send "sources" når ikke ALLE kilder er valgt -- undgår en
+      // unødvendigt lang querystring i det (langt hyppigste) tilfælde hvor
+      // brugeren ikke har afkrydset noget fra.
+      if (sources.length > 0 && sources.length < ALL_SOURCES.length) {
+        params.set("sources", sources.join(","));
+      } else if (sources.length === 0) {
+        // Alle kilder fravalgt -- bed eksplicit om en kilde der ikke findes,
+        // så resultatet bliver tomt i stedet for (fejlagtigt) "alle kilder".
+        params.set("sources", "__none__");
+      }
       if (klasse) params.set("dust_class", klasse);
       params.set("sort", sort);
       if (showDismissed) params.set("include_dismissed", "1");
@@ -225,22 +321,9 @@
       for (const row of listings) {
         container.appendChild(renderCard(row));
       }
-
-      const sourceSelect = document.getElementById("filter-source");
-      if (sourceSelect.dataset.populated !== "1") {
-        const sources = [...new Set(listings.map((r) => r.source))].sort();
-        for (const s of sources) {
-          const opt = document.createElement("option");
-          opt.value = s;
-          opt.textContent = s;
-          sourceSelect.appendChild(opt);
-        }
-        sourceSelect.dataset.populated = "1";
-      }
     }
 
     document.getElementById("filter-vurdering").addEventListener("change", loadListings);
-    document.getElementById("filter-source").addEventListener("change", loadListings);
     document.getElementById("filter-klasse").addEventListener("change", loadListings);
     document.getElementById("sort").addEventListener("change", loadListings);
     document.getElementById("show-dismissed").addEventListener("change", loadListings);
@@ -257,6 +340,7 @@
       const me = await requireSession();
       if (!me) return;
       document.getElementById("whoami").textContent = me.username;
+      renderSourceCheckboxes();
       await loadListings();
     })();
   </script>
