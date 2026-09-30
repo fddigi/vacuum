@@ -11,6 +11,7 @@ sources:
   klaravik: false
   auktionshuset: false
   retrade: false
+  facebook: false
 
 search_terms:
   primary: []

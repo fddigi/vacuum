@@ -1,9 +1,11 @@
 """Entry point for vacuum-scraperen (brugte H/M-klasse sikkerhedsstøvsugere).
 
-Kilder: dba.dk, guloggratis.dk, kleinanzeigen.de, blocket.se, vinted.dk,
-klaravik.dk, auktionshuset.dk, retrade.eu. Facebook Marketplace, eBay Browse
-API og Traderas API er BEVIDST UDELADT i v1 (høj ToS/teknisk risiko hhv.
-kræver brugerens egen developer-registrering, se README.md).
+Kilder: dba.dk, guloggratis.dk, kleinanzeigen.de, blocket.se, klaravik.dk,
+auktionshuset.dk, retrade.eu, facebook.com/marketplace (genoptaget
+2026-09-30, se sources/facebook.py's docstring for den fulde risikoafvejning
+-- kræver login, modsat alle øvrige kilder). vinted.dk er deaktiveret (dødt
+API, se config.yaml). eBay Browse API og Traderas API er BEVIDST UDELADT i v1
+(kræver brugerens egen developer-registrering, se README.md).
 
 Run directly with `python -m scraper.main`, via the `scraper-run` console
 script, or through the launchd job installed by `make install-launchd`.
@@ -32,6 +34,7 @@ from .sources import (
     auktionshuset,
     blocket,
     dba,
+    facebook,
     guloggratis,
     klaravik,
     kleinanzeigen,
@@ -51,6 +54,7 @@ SOURCE_MODULES = {
     "klaravik": klaravik,
     "auktionshuset": auktionshuset,
     "retrade": retrade,
+    "facebook": facebook,
 }
 
 # KRITISK FUND (live-test 2026-09-20): efter search_terms-reseed-fixet
@@ -76,6 +80,7 @@ SOURCE_TIMEOUT_OVERRIDES = {
     "klaravik": 900,
     "auktionshuset": 900,
     "retrade": 900,
+    "facebook": 900,
 }
 
 # To uafhængige triggere (launchd-schedule + evt. fremtidig "Kør nu"-knap) kan

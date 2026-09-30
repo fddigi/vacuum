@@ -21,8 +21,15 @@ sources:
   klaravik: true
   auktionshuset: true  # "dab.dk" i den oprindelige spec -- stærkeste fund ved research
   retrade: true        # lavt forventet udbytte (tung erhvervsmaskineri), se sources/retrade.py
+  # GENOPTAGET 2026-09-30 (brugeren observerede selv flere relevante annoncer
+  # der som ingen af de øvrige syv kilder kan finde -- Facebook Marketplace-
+  # annoncer indekseres ikke andre steder). Kræver login (FACEBOOK_C_USER/
+  # FACEBOOK_XS i .env, git-ignoreret) fra en DEDIKERET konto, ikke brugerens
+  # primære -- se sources/facebook.py's docstring for den fulde risikomodel.
+  # Fejler gracefult til [] hvis cookies mangler, så denne linje er sikker at
+  # lade stå selv uden konfigureret session.
+  facebook: true
   # BEVIDST UDELADT (se README.md):
-  #  - facebook: høj ToS-/bot-detektions-risiko, kræver login -- ikke bygget.
   #  - ebay/tradera: kræver brugerens EGEN gratis developer-API-nøgle
   #    (developer.ebay.com / Tradera Open Platform) -- ikke registreret endnu.
   #  - campenauktioner.dk: midlertidigt utilgængelig ved research (side nede
@@ -32,10 +39,15 @@ sources:
 # Per-kilde min-interval (timer) -- Kleinanzeigen/Blocket øger blokeringsrisiko
 # ved for hyppig hentning. Spec: "kør hver 6. time" er selve launchd-intervallet
 # (se infra/launchd/scraper.template.plist), dette er et EKSTRA loft ovenpå.
+# facebook: sat markant højere end de øvrige (24t) -- kontospærring er en langt
+# alvorligere konsekvens end en midlertidig IP-blokering, og denne kilde er den
+# eneste der bruger en rigtig, personlig login-session. Bevidst forsigtighed,
+# ikke en teknisk nødvendighed.
 sources_min_interval_hours:
   kleinanzeigen: 6
   blocket: 6
   vinted: 6
+  facebook: 24
 
 search_terms:
   # Specens egne generiske termer (agent-prompt "SØGETERMER"-sektion).

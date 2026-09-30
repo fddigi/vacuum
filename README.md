@@ -14,11 +14,11 @@ dokumentation) -- denne sektion dækker kun det projektspecifikke.
 | guloggratis.dk | ✅ Aktiv | Playwright, egen React-DOM |
 | kleinanzeigen.de | ✅ Aktiv, live-verificeret | Playwright, frisk context pr. forespørgsel -- selectors fuldt genskrevet efter site-redesign, se nedenfor |
 | blocket.se | ✅ Aktiv, live-verificeret | Samme Schibsted-platform som dba.dk, ingen ændringer nødvendige |
-| vinted.dk | ⚠️ Kode findes, men **p.t. ikke-funktionel** | API-endpointet fra PLAGGs research (2026-07-10) giver nu 404, muligvis DataDome-blokeret -- fejler gracefult (tom liste), kræver et nyt research-spike. Se `sources/vinted.py`'s docstring |
-| klaravik.dk | ✅ Aktiv | Auktion, aktuelt bud (ikke fast pris) |
-| auktionshuset.dk ("dab.dk" i specen) | ✅ Aktiv, **stærkeste fund ved test** | Konkurs-/overskudsauktioner -- reelt lager af professionelt udstyr |
-| retrade.eu | ✅ Aktiv, **lavt forventet udbytte** | Domineret af tung entreprenørmaskineri, 0 hits ved test på "kärcher"/"støvsuger" |
-| Facebook Marketplace | ❌ Udeladt | Kræver login, aggressiv bot-detektion, imod Metas ToS at automatisere |
+| vinted.dk | ❌ Deaktiveret 2026-09-29 | API-endpointet giver 404 på alt, bekræftet live -- en Playwright-omvej virker teknisk, men udbuddet er forbrugerstøvsugere/tilbehør, intet industri-H-klasse. Se `sources/vinted.py`'s docstring |
+| klaravik.dk | ✅ Aktiv | Auktion, aktuelt bud (ikke fast pris). Får et kildespecifikt ekstra søgeord ("støvsuger"), se `search_terms.per_source` i config.yaml |
+| auktionshuset.dk ("dab.dk" i specen) | ✅ Aktiv, **stærkeste fund ved test** | Konkurs-/overskudsauktioner -- reelt lager af professionelt udstyr. Samme kildespecifikke supplement som klaravik |
+| retrade.eu | ✅ Aktiv, **lavt forventet udbytte** | Domineret af tung entreprenørmaskineri. En DKK-only prisparser-bug (rettet 2026-09-29) droppede tidligere ~2/3 af alle kort tavst -- se `sources/retrade.py`'s docstring |
+| Facebook Marketplace | ✅ Aktiv (genoptaget 2026-09-30) | Kræver en logget-ind session (FACEBOOK_C_USER/FACEBOOK_XS i .env, git-ignoreret) fra en DEDIKERET konto -- ikke brugerens primære. Imod Metas ToS at automatisere; sessionen kan spærres uden varsel. Se `sources/facebook.py`'s docstring for den fulde risikomodel |
 | eBay Browse API, Tradera Open Platform | ❌ Udeladt | Kræver egen gratis developer-registrering (developer.ebay.com / Tradera) -- ikke oprettet endnu |
 | campenauktioner.dk | ❌ Udeladt | Midlertidigt utilgængelig ved research ("opdatering") -- prøv igen senere |
 | nettoauktion.dk | ❌ Droppet | Domænet findes ikke i praksis |
