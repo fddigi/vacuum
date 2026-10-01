@@ -131,6 +131,13 @@
     // annoncer her er 'kun afhentning'" (upraktisk for en dansk køber på et
     // tysk marketplace). Alle andre kilder starter TÆNDT. Valget huskes i
     // browseren (localStorage), så det ikke nulstilles ved hvert besøg.
+    // RETTET 2026-10-01: "facebook" manglede fra denne liste (tilføjet som
+    // kilde 2026-09-30, EFTER denne liste blev skrevet). Konsekvensen var
+    // værre end "ingen toggle" -- fordi kleinanzeigen starter slukket,
+    // sendte loadListings() allerede en EKSPLICIT ?sources=-liste ved hvert
+    // besøg (se "sources.length < ALL_SOURCES.length" nedenfor), og den
+    // liste kendte ikke facebook, så Facebook-fund blev tavst filtreret væk
+    // for enhver bruger der nogensinde har haft kleinanzeigen slået fra.
     const ALL_SOURCES = [
       "dba",
       "guloggratis",
@@ -140,6 +147,7 @@
       "klaravik",
       "auktionshuset",
       "retrade",
+      "facebook",
     ];
     const SOURCES_OFF_BY_DEFAULT = new Set(["kleinanzeigen"]);
     const SOURCES_STORAGE_KEY = "vacuum_source_filters_v1";
