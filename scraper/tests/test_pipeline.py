@@ -57,3 +57,20 @@ def test_accessory_override_clears_model_and_class_fields_too():
     assert row["dust_class"] == "ingen (L/ukendt)"
     assert row["klasse_kilde"] is None
     assert "tilbehør" in json.loads(row["mangler_info"])[0]
+
+
+def test_category_defaults_to_stoevsugere_and_attributes_json_is_empty_dict():
+    """Regression -- kategori-generalisering (2026-10-03, se categories.py):
+    run_source() uden et eksplicit category-argument skal fortsat skrive
+    'stoevsugere' i den nye category-kolonne (bagudkompatibel default), og
+    attributes_json skal være et tomt JSON-objekt, da stoevsuger-kategoriens
+    normalize_listing() ikke sætter en 'attributes'-nøgle."""
+    with LocalStore(":memory:") as store:
+        run_source(store, "dba", _fake_fetch, CONFIG)
+        row = store.connection.execute(
+            "SELECT category, attributes_json, image_url FROM listings"
+        ).fetchone()
+
+    assert row["category"] == "stoevsugere"
+    assert json.loads(row["attributes_json"]) == {}
+    assert row["image_url"] is None

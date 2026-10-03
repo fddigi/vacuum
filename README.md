@@ -1,10 +1,21 @@
-# vacuum -- sikkerhedsstøvsuger-overvågning (støvklasse H/M)
+# vacuum -- sourcing til SHV-projektet (Slotsherrensvej 139)
 
-Overvåger brugtmarkeder for byggestøvsugere i støvklasse H (primært) og M
-(sekundært, kun spec-godkendte modeller), der lovligt og teknisk kan bruges til
-kvartsstøv og asbestholdigt støv ved privat renovering i Danmark. Bygget på
-`fddigi/scraper-boilerplate` (se resten af denne fil for skabelonens generelle
-dokumentation) -- denne sektion dækker kun det projektspecifikke.
+**Scope udvidet 2026-10-03:** "vacuum" startede som en ren sikkerhedsstøvsuger-
+scraper, men dækker nu sourcing af materialer og udstyr til hele SHV-projektet
+(totalrenovering af et tidligere bageri, Slotsherrensvej 139) -- døre,
+brandvinduer (BD60), genbrugs-byggematerialer m.fl. er under opbygning som
+nye kategorier. Se `scraper/scraper/categories.py`'s docstring for arkitekturen
+(hver kategori har sin egen normalize/classify-logik, men deler al scraping-/
+sync-infrastruktur), og `.claude/agents/stoevsuger-ekspert.md` for hvordan
+den oprindelige sikkerhedsstøvsuger-ekspertise er bevaret som sin egen,
+dedikerede subagent i stedet for at blive udvandet i det bredere scope.
+
+Den oprindelige, fuldt implementerede kategori overvåger brugtmarkeder for
+byggestøvsugere i støvklasse H (primært) og M (sekundært, kun spec-godkendte
+modeller), der lovligt og teknisk kan bruges til kvartsstøv og asbestholdigt
+støv ved privat renovering i Danmark. Bygget på `fddigi/scraper-boilerplate`
+(se resten af denne fil for skabelonens generelle dokumentation) -- denne
+sektion dækker kun det projektspecifikke.
 
 ## Kilder
 

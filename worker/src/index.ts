@@ -186,12 +186,25 @@ app.get("/api/listings", requireAuth, async (c) => {
   const dustClass = c.req.query("dust_class");
   const includeDismissed = c.req.query("include_dismissed") === "1";
   const validatedOnly = c.req.query("validated") === "1";
+  // Kategori-generalisering (2026-10-03, se scraper/scraper/categories.py's
+  // docstring): "vacuum" dækker nu hele SHV-sourcingen, ikke kun
+  // sikkerhedsstøvsugere. Ingen filter = alle kategorier (i dag betyder det
+  // reelt "alle", da kun 'stoevsugere' findes endnu) -- frontend'ens
+  // fremtidige faneblade pr. kategori sender denne eksplicit.
+  const category = c.req.query("category");
 
   await ensureColumn(db, "listings", "dismissed", "INTEGER NOT NULL DEFAULT 0");
   await ensureColumn(db, "listings", "dismissed_reason", "TEXT");
+  await ensureColumn(db, "listings", "category", "TEXT NOT NULL DEFAULT 'stoevsugere'");
+  await ensureColumn(db, "listings", "image_url", "TEXT");
+  await ensureColumn(db, "listings", "attributes_json", "TEXT");
 
   const conditions: string[] = [];
   const args: (string | number)[] = [];
+  if (category) {
+    conditions.push("category = ?");
+    args.push(category);
+  }
   if (vurdering) {
     conditions.push("vurdering = ?");
     args.push(vurdering);

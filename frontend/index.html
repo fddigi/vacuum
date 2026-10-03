@@ -45,9 +45,24 @@
     .sources-box { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); }
     .sources-box .sources-label { color: var(--muted); font-size: 0.8rem; }
     .badge.prioritet { color: #8a5a00; background: #fff2d1; }
+    .category-tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+    .category-tab { font: inherit; padding: 8px 16px; border: none; background: none; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; }
+    .category-tab.active { color: var(--text); font-weight: 600; border-bottom-color: var(--text); }
+    .category-tab[disabled] { color: #ccc; cursor: default; }
   </style>
 </head>
 <body>
+  <!-- Kategori-faneblade (2026-10-03): "vacuum" dækker nu hele SHV-
+       sourcingen, ikke kun sikkerhedsstøvsugere -- se
+       scraper/scraper/categories.py's docstring. Kun ÉN kategori har reelt
+       data/UI endnu; resten vises deaktiverede som en synlig markør af
+       hvad der er planlagt, i stedet for at dukke op uden varsel senere. -->
+  <div class="category-tabs">
+    <button class="category-tab active" data-category="stoevsugere">🧹 Sikkerhedsstøvsugere</button>
+    <button class="category-tab" disabled title="Under opbygning">🚪 Døre</button>
+    <button class="category-tab" disabled title="Under opbygning">🔥 Brandvinduer</button>
+  </div>
+
   <div class="topbar">
     <div>
       <h1>Sikkerhedsstøvsugere (støvklasse H/M)</h1>
@@ -295,6 +310,10 @@
 
     async function loadListings() {
       const params = new URLSearchParams();
+      // Kategori-generalisering (2026-10-03): kun ét aktivt faneblad findes
+      // endnu (se category-tabs ovenfor), men sendes allerede eksplicit, så
+      // mekanikken er afprøvet før faneblad nr. 2 kommer til.
+      params.set("category", "stoevsugere");
       const vurdering = document.getElementById("filter-vurdering").value;
       const sources = checkedSources();
       const klasse = document.getElementById("filter-klasse").value;

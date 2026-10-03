@@ -26,6 +26,7 @@ from scraper_core.logging_setup import configure_logging
 from scraper_core.sync import sync_pending
 from scraper_core.turso_client import TursoClient
 
+from .categories import DEFAULT_CATEGORY
 from .pipeline import SYNC_PROTECTED_COLUMNS, TURSO_SCHEMA, run_source
 from .price_history import sync_price_history_to_turso
 from .search_terms import config_for_source, load_search_terms
@@ -113,6 +114,15 @@ def run(force_source: str | None = None) -> int:
 
 
 def _run_locked(settings: Settings, force_source: str | None = None) -> int:
+    # KATEGORI-GENERALISERING (2026-10-03, se categories.py's docstring):
+    # kun ÉN kategori findes endnu (stoevsugere), så hele dette modul kører
+    # stadig alle kilder mod den ene kategoris config.yaml/search_terms,
+    # uændret adfærd. Når en ny kategori (fx døre) registreres i
+    # categories.CATEGORIES, bliver denne funktion en løkke over
+    # CATEGORIES.values() i stedet -- udskudt indtil der reelt er en anden
+    # kategori at løkke over, for ikke at bygge en abstraktion der aldrig
+    # bliver afprøvet med mere end ét tilfælde.
+    category = DEFAULT_CATEGORY
     vacuum_config = load_config()
     min_interval_hours = vacuum_config.get("sources_min_interval_hours", {})
 
@@ -170,6 +180,7 @@ def _run_locked(settings: Settings, force_source: str | None = None) -> int:
                             name,
                             module.fetch,
                             config_for_source(vacuum_config, name),
+                            category=category,
                             **run_source_kwargs,
                         )
                         mark_source_run(store.connection, name)
@@ -220,6 +231,7 @@ def _run_locked(settings: Settings, force_source: str | None = None) -> int:
                         name,
                         module.fetch,
                         config_for_source(vacuum_config, name),
+                        category=category,
                         **run_source_kwargs,
                     )
                     mark_source_run(store.connection, name)
