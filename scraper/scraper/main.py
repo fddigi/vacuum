@@ -1,10 +1,12 @@
 """Entry point for vacuum-scraperen (brugte H/M-klasse sikkerhedsstøvsugere).
 
 Kilder: dba.dk, guloggratis.dk, kleinanzeigen.de, blocket.se, klaravik.dk,
-auktionshuset.dk, retrade.eu, facebook.com/marketplace (genoptaget
-2026-09-30, se sources/facebook.py's docstring for den fulde risikoafvejning
--- kræver login, modsat alle øvrige kilder). vinted.dk er deaktiveret (dødt
-API, se config.yaml). eBay Browse API og Traderas API er BEVIDST UDELADT i v1
+auktionshuset.dk, retrade.eu, jyskauktion.dk (tilføjet 2026-10-04, jysk
+konkurs-/overskudsauktionshus, fundet af brugeren selv -- se
+sources/jyskauktion.py), facebook.com/marketplace (genoptaget 2026-09-30, se
+sources/facebook.py's docstring for den fulde risikoafvejning -- kræver
+login, modsat alle øvrige kilder). vinted.dk er deaktiveret (dødt API, se
+config.yaml). eBay Browse API og Traderas API er BEVIDST UDELADT i v1
 (kræver brugerens egen developer-registrering, se README.md).
 
 Run directly with `python -m scraper.main`, via the `scraper-run` console
@@ -29,6 +31,7 @@ from scraper_core.turso_client import TursoClient
 from .categories import DEFAULT_CATEGORY
 from .pipeline import SYNC_PROTECTED_COLUMNS, TURSO_SCHEMA, run_source
 from .price_history import sync_price_history_to_turso
+from .schema_utils import add_column_if_missing
 from .search_terms import config_for_source, load_search_terms
 from .source_cadence import SOURCE_STATE_SCHEMA, mark_source_run, should_run_source
 from .sources import (
@@ -37,6 +40,7 @@ from .sources import (
     dba,
     facebook,
     guloggratis,
+    jyskauktion,
     klaravik,
     kleinanzeigen,
     retrade,
@@ -56,6 +60,7 @@ SOURCE_MODULES = {
     "auktionshuset": auktionshuset,
     "retrade": retrade,
     "facebook": facebook,
+    "jyskauktion": jyskauktion,
 }
 
 # KRITISK FUND (live-test 2026-09-20): efter search_terms-reseed-fixet
@@ -82,6 +87,7 @@ SOURCE_TIMEOUT_OVERRIDES = {
     "auktionshuset": 900,
     "retrade": 900,
     "facebook": 900,
+    "jyskauktion": 900,
 }
 
 # To uafhængige triggere (launchd-schedule + evt. fremtidig "Kør nu"-knap) kan
@@ -142,6 +148,28 @@ def _run_locked(settings: Settings, force_source: str | None = None) -> int:
             if settings.turso_configured:
                 with TursoClient(settings) as turso:
                     turso.execute(TURSO_SCHEMA)
+                    # KRITISK FUND (live-test 2026-10-03, kategori-generaliseringen):
+                    # add_column_if_missing() blev hidtil KUN kaldt mod den lokale
+                    # SQLite-forbindelse (se pipeline.py's run_source()) -- aldrig mod
+                    # Turso direkte. Det "virkede" historisk kun ved et tilfælde:
+                    # Worker'ens /api/listings kører sin egen ensureColumn() mod Turso,
+                    # og dashboardet besøges typisk ofte nok at den vinder kapløbet før
+                    # scraperen næste gang synkroniserer en ny kolonne. Lige efter
+                    # deploy af de tre nye kolonner (category/image_url/
+                    # attributes_json), UDEN at nogen havde ramt API'et først, fejlede
+                    # sync_pending() reelt med "no such column: category" mod den
+                    # LIVE Turso-database -- scraperen selv må derfor ALDRIG afhænge
+                    # af at noget andet system migrerer dens eget skema. Gjort
+                    # selvforsynende her for alle additive kolonner, ikke kun de nye.
+                    for column, ddl in (
+                        ("last_seen", "TEXT"),
+                        ("dismissed", "INTEGER NOT NULL DEFAULT 0"),
+                        ("dismissed_reason", "TEXT"),
+                        ("category", "TEXT NOT NULL DEFAULT 'stoevsugere'"),
+                        ("image_url", "TEXT"),
+                        ("attributes_json", "TEXT"),
+                    ):
+                        add_column_if_missing(turso, "listings", column, ddl)
 
                     dynamic_term_pairs = load_search_terms(vacuum_config, turso)
                     vacuum_config["search_terms"] = {

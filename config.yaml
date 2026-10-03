@@ -29,6 +29,11 @@ sources:
   # Fejler gracefult til [] hvis cookies mangler, så denne linje er sikker at
   # lade stå selv uden konfigureret session.
   facebook: true
+  # TILFØJET 2026-10-04 -- fundet af brugeren selv (en konkret STØVSUGER-
+  # annonce fra en konkursauktion). Ingen tekstsøgning virker på sitet;
+  # kilden gennembladrer i stedet alle aktive kataloger og lader
+  # classify.py filtrere støjen fra. Se sources/jyskauktion.py.
+  jyskauktion: true
   # BEVIDST UDELADT (se README.md):
   #  - ebay/tradera: kræver brugerens EGEN gratis developer-API-nøgle
   #    (developer.ebay.com / Tradera Open Platform) -- ikke registreret endnu.

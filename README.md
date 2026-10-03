@@ -30,6 +30,7 @@ sektion dækker kun det projektspecifikke.
 | auktionshuset.dk ("dab.dk" i specen) | ✅ Aktiv, **stærkeste fund ved test** | Konkurs-/overskudsauktioner -- reelt lager af professionelt udstyr. Samme kildespecifikke supplement som klaravik |
 | retrade.eu | ✅ Aktiv, **lavt forventet udbytte** | Domineret af tung entreprenørmaskineri. En DKK-only prisparser-bug (rettet 2026-09-29) droppede tidligere ~2/3 af alle kort tavst -- se `sources/retrade.py`'s docstring |
 | Facebook Marketplace | ✅ Aktiv (genoptaget 2026-09-30) | Kræver en logget-ind session (FACEBOOK_C_USER/FACEBOOK_XS i .env, git-ignoreret) fra en DEDIKERET konto -- ikke brugerens primære. Imod Metas ToS at automatisere; sessionen kan spærres uden varsel. Se `sources/facebook.py`'s docstring for den fulde risikomodel |
+| jyskauktion.dk | ✅ Aktiv (tilføjet 2026-10-04) | Jysk konkurs-/overskudsauktionshus, fundet af brugeren selv (en reel STØVSUGER-annonce). Ingen tekstsøgning virker på sitet -- gennembladrer i stedet ALLE aktive kataloger (opdaget dynamisk fra forsiden) og lader classify.py filtrere støjen fra. Se `sources/jyskauktion.py`'s docstring |
 | eBay Browse API, Tradera Open Platform | ❌ Udeladt | Kræver egen gratis developer-registrering (developer.ebay.com / Tradera) -- ikke oprettet endnu |
 | campenauktioner.dk | ❌ Udeladt | Midlertidigt utilgængelig ved research ("opdatering") -- prøv igen senere |
 | nettoauktion.dk | ❌ Droppet | Domænet findes ikke i praksis |

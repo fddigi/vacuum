@@ -12,6 +12,7 @@ sources:
   auktionshuset: false
   retrade: false
   facebook: false
+  jyskauktion: false
 
 search_terms:
   primary: []
