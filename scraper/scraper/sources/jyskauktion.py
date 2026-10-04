@@ -93,6 +93,25 @@ def _page_count(page) -> int:
     return max(len(unique_hrefs), 1)
 
 
+def _parse_image_url(card) -> str | None:
+    """Thumbnail-URL for kortet, eller None hvis intet billede findes.
+
+    KONKRET ANLEDNING (2026-10-05, brugerens eget fund): flere reelle
+    støvsuger-lots her har ABSOLUT INTET identificerbart i selve teksten --
+    "STØVSUGER." er den FULDE beskrivelse, også på selve detaljesiden (ikke
+    kun kortet). Modellen ("ISC H-1625", "Attix 33 H PC") var kun synlig på
+    typeskiltet i billederne, som brugeren selv kiggede på. Det kan intet
+    tekst-regex rette -- thumbnailet lader i det mindste brugeren selv
+    screene disse hurtigt i dashboardet uden at skulle åbne hver annonce."""
+    img = card.query_selector("img")
+    if img is None:
+        return None
+    src = (img.get_attribute("src") or "").strip()
+    if not src:
+        return None
+    return src if src.startswith("http") else BASE_URL + src
+
+
 def _parse_listing_cards(page) -> list[dict]:
     cards = page.query_selector_all(".product-holder")
     results = []
@@ -110,6 +129,7 @@ def _parse_listing_cards(page) -> list[dict]:
                     "title": desc_el.inner_text().strip(),
                     "price_text": bid_el.inner_text().strip(),
                     "url": f"{BASE_URL}/product/{product_id}",
+                    "image_url": _parse_image_url(card),
                 }
             )
         except Exception:
@@ -226,6 +246,7 @@ def fetch(config: dict, dry_run: bool = False) -> list[dict]:
                                     "extra": {
                                         "search_term": f"katalog-{catalog_id}",
                                         "source_page": url,
+                                        "image_url": card.get("image_url"),
                                         "is_auction": True,
                                     },
                                 }
