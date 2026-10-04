@@ -347,7 +347,12 @@ MODEL_WHITELIST: list[ModelEntry] = [
     # "asbest_sku_maerkning" (samme mekanik som nyt_filter/unused_machine).
     ModelEntry(
         "nilfisk_attix_33_2h",
-        _p(rf"\b{_ATTIX}[\s-]*33[\s-]*2h\b"),
+        # "2"'et gjort VALGFRIT 2026-10-05: et reelt auktionsfund (jyskauktion.dk,
+        # katalog 313) hed bare "Attix 33 H PC" -- sælgerens løse forkortelse af
+        # samme model, uden varianttallet. Ingen kollisionsrisiko: mønsteret
+        # kræver stadig literalt "h" direkte efter det (valgfri) "2", så det
+        # fanger aldrig en M-model eller et andet tal.
+        _p(rf"\b{_ATTIX}[\s-]*33[\s-]*2?h\b"),
         "Nilfisk",
         "Attix 33-2H (IC/PC)",
         "H",

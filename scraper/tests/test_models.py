@@ -230,3 +230,16 @@ def test_ronda_200_without_h_is_hard_rejected():
         result = classify_model(text)
         assert result["hard_reject"] is False, text
         assert result["dust_class"] == "H", text
+
+
+def test_attix_33_h_without_variant_digit_still_matches():
+    """RETTET 2026-10-05 -- reelt auktionsfund (jyskauktion.dk, katalog 313):
+    'L11 Attix 33 H PC alder ukendt' matchede IKKE det oprindelige mønster,
+    som krævede et literalt '2' mellem '33' og 'H'. Sælgere forkorter ofte
+    modelnavnet uden variant-tallet. '2' er nu valgfrit, uden at åbne for
+    M-modellen eller et andet tal (se den negative test nedenfor)."""
+    assert classify_model("L11 Attix 33 H PC alder ukendt")["model_key"] == "nilfisk_attix_33_2h"
+    assert classify_model("Nilfisk Attix 33H")["model_key"] == "nilfisk_attix_33_2h"
+    # Må IKKE åbne for M-modellen eller et ikke-eksisterende varianttal.
+    assert classify_model("Nilfisk Attix 33-2M PC")["dust_class"] == "M"
+    assert classify_model("Nilfisk Attix 331H")["model_key"] is None
