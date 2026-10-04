@@ -45,6 +45,7 @@
     .sources-box { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); }
     .sources-box .sources-label { color: var(--muted); font-size: 0.8rem; }
     .badge.prioritet { color: #8a5a00; background: #fff2d1; }
+    .thumb { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); flex-shrink: 0; background: var(--bg); }
     .category-tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
     .category-tab { font: inherit; padding: 8px 16px; border: none; background: none; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; }
     .category-tab.active { color: var(--text); font-weight: 600; border-bottom-color: var(--text); }
@@ -261,8 +262,16 @@
         ? `<span class="badge koeb" title="Støvklasse bekræftet via modelnavn-match">✓ valideret</span>`
         : "";
 
+      // Thumbnail (2026-10-05): kun DBA og jyskauktion opsamler et billede
+      // pt. -- se sources/dba.py og sources/jyskauktion.py's docstrings.
+      // Nullable for alle øvrige kilder, så feltet vises kun når det findes.
+      const thumb = row.image_url
+        ? `<img class="thumb" src="${row.image_url}" alt="" loading="lazy" onerror="this.remove()">`
+        : "";
+
       card.innerHTML = `
         <div class="card-top">
+          ${thumb}
           <div>
             <span class="badge ${badgeClass(row.vurdering)}">${row.vurdering ?? "ukendt"}</span>
             ${validatedBadge}
