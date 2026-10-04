@@ -38,6 +38,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from . import classify as _vacuum_classify
+from . import doere_classify as _doere_classify
+from . import doere_normalize as _doere_normalize
 from . import normalize as _vacuum_normalize
 
 
@@ -56,6 +58,18 @@ class Category:
     # fast pris) -- kategoriens egne standardspørgsmål, ikke nødvendigvis
     # støvsugerens (en dør har andre ting at spørge ind til end et typeskilt).
     seller_questions: list[str]
+    # Hver kategori har sin EGEN config.yaml-fil (se main.py's load pr.
+    # kategori) -- stoevsugere-kategorien er fuldt optaget af
+    # prislofter/filterestimat/M-klasse-logik, som intet har med en dørs
+    # bredde/højde at gøre. Delte infrastruktur-felter (currency,
+    # import_costs, playwright) duplikeres bevidst pr. fil, samme princip
+    # som config.yaml's søgetermer duplikerer models.py's whitelist.
+    config_path: str
+    # Dynamisk, webapp-redigerbar søgeterm-liste via Turso (se
+    # search_terms.py) -- kun relevant for kategorier der rent faktisk
+    # bruger den delte search_terms-tabel. doere-kategorien bruger v1
+    # kun statiske termer fra sin egen config-fil.
+    uses_dynamic_search_terms: bool = True
 
 
 CATEGORIES: dict[str, Category] = {
@@ -67,6 +81,22 @@ CATEGORIES: dict[str, Category] = {
         is_accessory_or_rental=_vacuum_normalize.is_accessory_or_rental,
         is_accessory_title=_vacuum_normalize.is_accessory_title,
         seller_questions=list(_vacuum_classify.SELLER_QUESTIONS),
+        config_path="config.yaml",
+    ),
+    # Første udvidelses-kategori (2026-10-04) -- se doere_normalize.py/
+    # doere_classify.py's docstrings. Første kilde: genbyg.dk (struktureret
+    # mål pr. kort); dba.dk kan tilføjes senere via samme kategori ved kun
+    # at udvide dens søgetermer, ingen ny kategori-kode nødvendig.
+    "doere": Category(
+        key="doere",
+        label="Døre",
+        normalize_listing=_doere_normalize.normalize_listing,
+        classify=_doere_classify.classify,
+        is_accessory_or_rental=_doere_normalize.is_accessory_or_rental,
+        is_accessory_title=_doere_normalize.is_accessory_title,
+        seller_questions=list(_doere_classify.SELLER_QUESTIONS),
+        config_path="config.doere.yaml",
+        uses_dynamic_search_terms=False,
     ),
 }
 

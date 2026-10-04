@@ -36,3 +36,18 @@ def test_every_category_implements_the_full_contract():
         assert callable(category.is_accessory_title)
         assert isinstance(category.seller_questions, list)
         assert len(category.seller_questions) > 0
+        assert category.config_path.endswith(".yaml")
+
+
+def test_doere_category_is_registered_and_distinct_from_stoevsugere():
+    """Regression -- anden kategori registreret 2026-10-04 (se
+    doere_normalize.py/doere_classify.py). Må aldrig genbruge
+    stoevsugere-kategoriens funktioner ved en kopi-indsæt-fejl."""
+    doere = CATEGORIES["doere"]
+    stoevsugere = CATEGORIES["stoevsugere"]
+    assert doere.key == "doere"
+    assert doere.normalize_listing is not stoevsugere.normalize_listing
+    assert doere.classify is not stoevsugere.classify
+    assert doere.config_path == "config.doere.yaml"
+    assert doere.uses_dynamic_search_terms is False
+    assert stoevsugere.uses_dynamic_search_terms is True

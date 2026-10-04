@@ -1,0 +1,60 @@
+# Konfiguration for "døre"-kategorien (SHV-sourcing, se scraper/scraper/
+# categories.py's docstring). Holdt som en SEPARAT, lean fil fra config.yaml,
+# som er fuldt optaget af sikkerhedsstøvsuger-kategorien (prislofter,
+# filterestimat, M-klasse-logik osv. giver ingen mening for en dør). Delte,
+# infrastruktur-niveau indstillinger (currency, import_costs, playwright) er
+# duplikeret her med vilje -- se config.yaml's egen kommentar om samme
+# princip for søgetermer vs. models.py.
+
+sources:
+  genbyg: true
+  # dba.dk aktiveret 2026-10-04 efter en dedikeret Opus-undersøgelse af
+  # 1.959 rigtige dør-/vinduesannoncer målte doere_normalize.py's fritekst-
+  # udtræk til 21,7% hit-rate (99,8% præcision) -- se doere_normalize.py's
+  # docstring for den fulde begrundelse. Kræver INGEN ændring i dba.py:
+  # pipeline.py's run_source() kalder allerede category.normalize_listing()
+  # generisk, så fritekst-faldbacken i doere_normalize.py kicker ind helt
+  # af sig selv for enhver kilde uden strukturerede mål.
+  #
+  # KENDT BEGRÆNSNING (samme undersøgelse): dba.py henter kun side 1 af
+  # søgeresultaterne pr. term -- søgeresultat-sidens &page=N-parameter
+  # virker, men bruges ikke. Ca. 2/3 af DBA's reelle dør-/vinduesudbud ses
+  # derfor ikke endnu. Ikke rettet her (påvirker også stoevsugere-kategorien,
+  # som deler samme dba.py -- en separat, isoleret ændring).
+  dba: true
+
+search_terms:
+  primary:
+    - "branddør"
+    - "BD30"
+    - "BD60"
+    - "indvendig dør"
+    - "yderdør"
+    - "terrassedør"
+    - "vindue"
+    - "brandvindue"
+    - "brandglas"
+    - "EI60"
+  secondary: []
+
+currency:
+  eur_dkk: 7.46
+  sek_dkk: 0.70
+  nok_dkk: 0.64
+  usd_dkk: 6.90
+
+import_costs:
+  vat_pct: 25
+  duty_threshold_eur: 150
+  duty_pct: 2.7
+  default_shipping_dkk: 500
+  eu_country_codes: [DK, DE, SE, AT, BE, BG, HR, CY, CZ, EE, ES, FI, FR, GR, HU, IE, IT, LT, LU, LV, MT, NL, PL, PT, RO, SI, SK]
+
+playwright:
+  headless: true
+  min_delay_s: 3
+  max_delay_s: 8
+  max_pages_per_term: 3
+  max_pages_total: 80
+
+db_path: "./data/local.db"

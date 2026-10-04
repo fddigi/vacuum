@@ -28,7 +28,7 @@ from scraper_core.logging_setup import configure_logging
 from scraper_core.sync import sync_pending
 from scraper_core.turso_client import TursoClient
 
-from .categories import DEFAULT_CATEGORY
+from .categories import CATEGORIES, Category
 from .pipeline import SYNC_PROTECTED_COLUMNS, TURSO_SCHEMA, run_source
 from .price_history import sync_price_history_to_turso
 from .schema_utils import add_column_if_missing
@@ -39,6 +39,7 @@ from .sources import (
     blocket,
     dba,
     facebook,
+    genbyg,
     guloggratis,
     jyskauktion,
     klaravik,
@@ -61,6 +62,7 @@ SOURCE_MODULES = {
     "retrade": retrade,
     "facebook": facebook,
     "jyskauktion": jyskauktion,
+    "genbyg": genbyg,
 }
 
 # KRITISK FUND (live-test 2026-09-20): efter search_terms-reseed-fixet
@@ -119,31 +121,89 @@ def run(force_source: str | None = None) -> int:
         lock_file.close()
 
 
-def _run_locked(settings: Settings, force_source: str | None = None) -> int:
-    # KATEGORI-GENERALISERING (2026-10-03, se categories.py's docstring):
-    # kun ÉN kategori findes endnu (stoevsugere), så hele dette modul kører
-    # stadig alle kilder mod den ene kategoris config.yaml/search_terms,
-    # uændret adfærd. Når en ny kategori (fx døre) registreres i
-    # categories.CATEGORIES, bliver denne funktion en løkke over
-    # CATEGORIES.values() i stedet -- udskudt indtil der reelt er en anden
-    # kategori at løkke over, for ikke at bygge en abstraktion der aldrig
-    # bliver afprøvet med mere end ét tilfælde.
-    category = DEFAULT_CATEGORY
-    vacuum_config = load_config()
-    min_interval_hours = vacuum_config.get("sources_min_interval_hours", {})
+def _enabled_sources_for(category_config: dict, force_source: str | None) -> list[str]:
+    enabled = [name for name, on in category_config.get("sources", {}).items() if on]
+    if force_source is not None:
+        # --source filtrerer PR. KATEGORI: en kildenavn hører kun til de
+        # kategorier der rent faktisk har den i deres egen sources:-liste
+        # (fx "genbyg" findes kun i config.doere.yaml) -- en kørsel med
+        # --source genbyg skal derfor IKKE forsøge at køre den under
+        # stoevsugere-kategorien, hvor den slet ikke er konfigureret.
+        enabled = [name for name in enabled if name == force_source]
+    return enabled
 
+
+def _run_category(
+    store: LocalStore,
+    category: Category,
+    turso: TursoClient | None,
+    force_source: str | None,
+) -> tuple[int, int, list[dict]]:
+    """Kører alle (kildespecifikke) fetch()-kald for ÉN kategori. Delt mellem
+    Turso- og lokal-only-tilstand (kaldes med turso=None i sidstnævnte)."""
+    category_config = load_config(category.config_path)
+    min_interval_hours = category_config.get("sources_min_interval_hours", {})
+    enabled_sources = _enabled_sources_for(category_config, force_source)
+
+    if category.uses_dynamic_search_terms and turso is not None:
+        dynamic_term_pairs = load_search_terms(category_config, turso)
+        category_config["search_terms"] = {
+            "primary": [term for term, _cat in dynamic_term_pairs],
+            "secondary": [],
+            # Kildespecifikke supplementer lever KUN i config-filen og
+            # seedes aldrig til Turso -- se search_terms.config_for_source().
+            "per_source": (category_config.get("search_terms") or {}).get("per_source", {}),
+        }
+
+    total_raw = 0
+    total_changed = 0
+    price_drop_events: list[dict] = []
+    for name in enabled_sources:
+        module = SOURCE_MODULES.get(name)
+        if module is None:
+            logger.warning("Unknown source configured: %s, skipping", name)
+            continue
+        if not should_run_source(
+            store.connection, name, min_interval_hours, force=force_source is not None
+        ):
+            continue
+        run_source_kwargs = {}
+        if name in SOURCE_TIMEOUT_OVERRIDES:
+            run_source_kwargs["fetch_timeout_seconds"] = SOURCE_TIMEOUT_OVERRIDES[name]
+        raw_count, changed, events = run_source(
+            store,
+            name,
+            module.fetch,
+            config_for_source(category_config, name),
+            category=category,
+            **run_source_kwargs,
+        )
+        mark_source_run(store.connection, name)
+        total_raw += raw_count
+        total_changed += changed
+        price_drop_events.extend(events)
+
+    logger.info(
+        "kategori %s: %d raw across %d source(s), %d new/changed",
+        category.key,
+        total_raw,
+        len(enabled_sources),
+        total_changed,
+    )
+    return total_raw, total_changed, price_drop_events
+
+
+def _run_locked(settings: Settings, force_source: str | None = None) -> int:
+    # KATEGORI-GENERALISERING (2026-10-03/04, se categories.py's docstring):
+    # hver registreret kategori har sin egen config-fil (search terms,
+    # sources-liste) og sin egen normalize/classify, men deler al øvrig
+    # infrastruktur (LocalStore, Turso-sync, watchdog) via dette fælles loop.
     try:
         with LocalStore(settings.local_sqlite_path) as store:
             store.executescript(SOURCE_STATE_SCHEMA)
-            total_raw = 0
-            total_changed = 0
+            grand_total_raw = 0
+            grand_total_changed = 0
             synced = 0
-
-            enabled_sources = [
-                name for name, enabled in vacuum_config.get("sources", {}).items() if enabled
-            ]
-            if force_source is not None:
-                enabled_sources = [force_source]
 
             if settings.turso_configured:
                 with TursoClient(settings) as turso:
@@ -171,50 +231,14 @@ def _run_locked(settings: Settings, force_source: str | None = None) -> int:
                     ):
                         add_column_if_missing(turso, "listings", column, ddl)
 
-                    dynamic_term_pairs = load_search_terms(vacuum_config, turso)
-                    vacuum_config["search_terms"] = {
-                        "primary": [term for term, _category in dynamic_term_pairs],
-                        "secondary": [],
-                        # Kildespecifikke supplementer lever KUN i config.yaml og
-                        # seedes aldrig til Turso -- de skal bæres med her, fordi
-                        # linjen ovenfor erstatter hele search_terms-dict'en med
-                        # Turso's globale ønskeseddel. Se search_terms.
-                        # config_for_source() for hvorfor de er per kilde.
-                        "per_source": (vacuum_config.get("search_terms") or {}).get(
-                            "per_source", {}
-                        ),
-                    }
-
                     all_price_drop_events = []
-                    for name in enabled_sources:
-                        module = SOURCE_MODULES.get(name)
-                        if module is None:
-                            logger.warning("Unknown source configured: %s, skipping", name)
-                            continue
-                        if not should_run_source(
-                            store.connection,
-                            name,
-                            min_interval_hours,
-                            force=force_source is not None,
-                        ):
-                            continue
-                        run_source_kwargs = {}
-                        if name in SOURCE_TIMEOUT_OVERRIDES:
-                            run_source_kwargs["fetch_timeout_seconds"] = SOURCE_TIMEOUT_OVERRIDES[
-                                name
-                            ]
-                        raw_count, changed, price_drop_events = run_source(
-                            store,
-                            name,
-                            module.fetch,
-                            config_for_source(vacuum_config, name),
-                            category=category,
-                            **run_source_kwargs,
+                    for category in CATEGORIES.values():
+                        raw_count, changed, events = _run_category(
+                            store, category, turso, force_source
                         )
-                        mark_source_run(store.connection, name)
-                        total_raw += raw_count
-                        total_changed += changed
-                        all_price_drop_events.extend(price_drop_events)
+                        grand_total_raw += raw_count
+                        grand_total_changed += changed
+                        all_price_drop_events.extend(events)
 
                     for _ in range(100):  # 100 * 200 = 20.000 rækker/kørsel-loft
                         batch_synced = sync_pending(
@@ -231,45 +255,24 @@ def _run_locked(settings: Settings, force_source: str | None = None) -> int:
                         )
 
                 logger.info(
-                    "run complete: %d raw across %d source(s), %d new/changed, %d synced to Turso",
-                    total_raw,
-                    len(enabled_sources),
-                    total_changed,
+                    "run complete: %d raw across %d category(ies), %d new/changed, "
+                    "%d synced to Turso",
+                    grand_total_raw,
+                    len(CATEGORIES),
+                    grand_total_changed,
                     synced,
                 )
             else:
                 # Graceful fallback: ingen Turso-konto -> lokal-only mode.
-                for name in enabled_sources:
-                    module = SOURCE_MODULES.get(name)
-                    if module is None:
-                        logger.warning("Unknown source configured: %s, skipping", name)
-                        continue
-                    if not should_run_source(
-                        store.connection,
-                        name,
-                        min_interval_hours,
-                        force=force_source is not None,
-                    ):
-                        continue
-                    run_source_kwargs = {}
-                    if name in SOURCE_TIMEOUT_OVERRIDES:
-                        run_source_kwargs["fetch_timeout_seconds"] = SOURCE_TIMEOUT_OVERRIDES[name]
-                    raw_count, changed, _price_drop_events = run_source(
-                        store,
-                        name,
-                        module.fetch,
-                        config_for_source(vacuum_config, name),
-                        category=category,
-                        **run_source_kwargs,
-                    )
-                    mark_source_run(store.connection, name)
-                    total_raw += raw_count
-                    total_changed += changed
+                for category in CATEGORIES.values():
+                    raw_count, changed, _events = _run_category(store, category, None, force_source)
+                    grand_total_raw += raw_count
+                    grand_total_changed += changed
 
                 logger.warning(
                     "TURSO_DATABASE_URL/TURSO_AUTH_TOKEN not set - skipping Turso sync "
                     "(local-only mode). %d new/changed item(s) queued locally.",
-                    total_changed,
+                    grand_total_changed,
                 )
     except Exception:
         logger.exception("scrape run failed")
