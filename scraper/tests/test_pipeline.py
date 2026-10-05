@@ -59,6 +59,85 @@ def test_accessory_override_clears_model_and_class_fields_too():
     assert "tilbehør" in json.loads(row["mangler_info"])[0]
 
 
+def _fetch_factory(urls):
+    def _fetch(config, dry_run=False):
+        return [
+            {
+                "title": f"Kärcher NT {i}",
+                "description": "",
+                "price_amount": 1000.0 + i,
+                "price_currency": "DKK",
+                "url": url,
+                "extra": {},
+            }
+            for i, url in enumerate(urls)
+        ]
+
+    return _fetch
+
+
+def test_misses_increments_only_for_items_absent_from_a_run_that_found_something():
+    """Solgt-detektion (2026-10-05, ported fra seng/PASPEAKERS): en annonce
+    der ikke dukker op i en kørsel hvor kilden ELLERS fandt noget, skal få
+    misses talt op -- men en annonce der STADIG findes skal forblive på 0."""
+    with LocalStore(":memory:") as store:
+        run_source(store, "kleinanzeigen", _fetch_factory(["https://a", "https://b"]), CONFIG)
+        # Næste kørsel finder kun "a" igen -- "b" er forsvundet.
+        run_source(store, "kleinanzeigen", _fetch_factory(["https://a"]), CONFIG)
+
+        rows = {
+            row["url"]: row["misses"]
+            for row in store.connection.execute("SELECT url, misses FROM listings")
+        }
+    assert rows["https://a"] == 0
+    assert rows["https://b"] == 1
+
+
+def test_misses_resets_to_zero_when_item_reappears():
+    with LocalStore(":memory:") as store:
+        run_source(store, "kleinanzeigen", _fetch_factory(["https://a", "https://b"]), CONFIG)
+        run_source(store, "kleinanzeigen", _fetch_factory(["https://a"]), CONFIG)
+        run_source(store, "kleinanzeigen", _fetch_factory(["https://a", "https://b"]), CONFIG)
+
+        row = store.connection.execute(
+            "SELECT misses FROM listings WHERE url = 'https://b'"
+        ).fetchone()
+    assert row["misses"] == 0
+
+
+def test_zero_result_run_does_not_increment_misses_for_anyone():
+    """Guard mod falske positiver (samme fund som seng-projektets
+    'found_keys_by_target'): en kørsel der selv finder 0 resultater (fx en
+    bot-wall) må ALDRIG tolkes som "alt er solgt" for den kilde."""
+
+    def _empty_fetch(config, dry_run=False):
+        return []
+
+    with LocalStore(":memory:") as store:
+        run_source(store, "kleinanzeigen", _fetch_factory(["https://a", "https://b"]), CONFIG)
+        run_source(store, "kleinanzeigen", _empty_fetch, CONFIG)
+
+        rows = {
+            row["url"]: row["misses"]
+            for row in store.connection.execute("SELECT url, misses FROM listings")
+        }
+    assert rows["https://a"] == 0
+    assert rows["https://b"] == 0
+
+
+def test_misses_only_counted_within_same_source_and_category():
+    """En anden kildes/kategoris rækker må aldrig få misses talt op af en
+    helt uafhængig kildes kørsel."""
+    with LocalStore(":memory:") as store:
+        run_source(store, "dba", _fetch_factory(["https://only-on-dba"]), CONFIG)
+        run_source(store, "kleinanzeigen", _fetch_factory(["https://a"]), CONFIG)
+
+        row = store.connection.execute(
+            "SELECT misses FROM listings WHERE url = 'https://only-on-dba'"
+        ).fetchone()
+    assert row["misses"] == 0
+
+
 def test_category_defaults_to_stoevsugere_and_attributes_json_is_empty_dict():
     """Regression -- kategori-generalisering (2026-10-03, se categories.py):
     run_source() uden et eksplicit category-argument skal fortsat skrive

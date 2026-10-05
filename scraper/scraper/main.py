@@ -133,6 +133,60 @@ def _enabled_sources_for(category_config: dict, force_source: str | None) -> lis
     return enabled
 
 
+def _verify_kleinanzeigen_sold(store: LocalStore, category: Category, config: dict) -> None:
+    """Solgt-verifikation (2026-10-05, se kleinanzeigen.verify_sold_status()'s
+    docstring for det MÅLTE fund bag dette): kleinanzeigen.de's søgeresultat-
+    kort viser aldrig et "solgt/reserveret"-mærke, men en direkte genbesøgt
+    annonce-URL gør, via et <h1>-præfiks. Kaldes derfor HER, efter den
+    normale fetch()-baserede source-loop, kun for rækker der allerede er
+    mistænkt forsvundet (misses >= 1) eller er over 24t gamle -- IKKE for
+    hele beholdningen hver kørsel, både for at begrænse antallet af ekstra
+    sidebesøg og fordi en helt frisk/aktiv annonce ikke har brug for
+    bekræftelse. Grænsen på 40 pr. kørsel holder den ekstra køretid på linje
+    med kleinanzeigen's eksisterende 900s-timeout-budget (se
+    SOURCE_TIMEOUT_OVERRIDES)."""
+    candidates = store.connection.execute(
+        "SELECT item_key, url FROM listings "
+        "WHERE source = 'kleinanzeigen' AND category = ? AND dismissed = 0 AND sold_marker = 0 "
+        "AND (misses >= 1 OR (julianday('now') - julianday(last_seen)) * 24 >= 24) "
+        "ORDER BY last_seen ASC LIMIT 40",
+        (category.key,),
+    ).fetchall()
+    if not candidates:
+        return
+
+    url_to_key = {row["url"]: row["item_key"] for row in candidates}
+    results = kleinanzeigen.verify_sold_status(list(url_to_key), config)
+    confirmed_sold = 0
+    confirmed_active = 0
+    for url, is_sold in results.items():
+        item_key = url_to_key[url]
+        if is_sold:
+            store.connection.execute(
+                "UPDATE listings SET sold_marker = 1 WHERE item_key = ?", (item_key,)
+            )
+            store.enqueue_update("listings", {"item_key": item_key, "sold_marker": 1})
+            confirmed_sold += 1
+        else:
+            # Bekræftet stadig aktiv -- en falsk "forsvundet"-mistanke
+            # (fx fordi annoncen var midlertidigt uden for de sider/termer
+            # denne kørsel dækkede), rydder derfor miss-tælleren.
+            store.connection.execute(
+                "UPDATE listings SET misses = 0 WHERE item_key = ?", (item_key,)
+            )
+            store.enqueue_update("listings", {"item_key": item_key, "misses": 0})
+            confirmed_active += 1
+    store.connection.commit()
+    logger.info(
+        "kleinanzeigen solgt-verifikation: %d kandidat(er), %d bekræftet solgt, "
+        "%d bekræftet stadig aktiv, %d ikke-verificerbar(e)",
+        len(candidates),
+        confirmed_sold,
+        confirmed_active,
+        len(candidates) - len(results),
+    )
+
+
 def _run_category(
     store: LocalStore,
     category: Category,
@@ -183,6 +237,16 @@ def _run_category(
         total_changed += changed
         price_drop_events.extend(events)
 
+    if "kleinanzeigen" in enabled_sources:
+        try:
+            _verify_kleinanzeigen_sold(
+                store, category, config_for_source(category_config, "kleinanzeigen")
+            )
+        except Exception:
+            logger.exception(
+                "kleinanzeigen solgt-verifikation fejlede, resten af kørslen fortsætter"
+            )
+
     logger.info(
         "kategori %s: %d raw across %d source(s), %d new/changed",
         category.key,
@@ -228,6 +292,8 @@ def _run_locked(settings: Settings, force_source: str | None = None) -> int:
                         ("category", "TEXT NOT NULL DEFAULT 'stoevsugere'"),
                         ("image_url", "TEXT"),
                         ("attributes_json", "TEXT"),
+                        ("misses", "INTEGER NOT NULL DEFAULT 0"),
+                        ("sold_marker", "INTEGER NOT NULL DEFAULT 0"),
                     ):
                         add_column_if_missing(turso, "listings", column, ddl)
 

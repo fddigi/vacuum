@@ -71,7 +71,9 @@ CREATE TABLE IF NOT EXISTS listings (
     raw_json TEXT,
     dismissed INTEGER NOT NULL DEFAULT 0,
     dismissed_reason TEXT,
-    attributes_json TEXT
+    attributes_json TEXT,
+    misses INTEGER NOT NULL DEFAULT 0,
+    sold_marker INTEGER NOT NULL DEFAULT 0
 );
 """
 TURSO_SCHEMA = LOCAL_SCHEMA
@@ -112,8 +114,19 @@ ON CONFLICT(item_key) DO UPDATE SET
     mangler_info = excluded.mangler_info,
     spoergsmaal_til_saelger = excluded.spoergsmaal_til_saelger,
     attributes_json = excluded.attributes_json,
-    raw_json = excluded.raw_json, last_seen = excluded.last_seen
-    -- dismissed/dismissed_reason er BEVIDST udeladt her, se kommentaren ovenfor.
+    raw_json = excluded.raw_json, last_seen = excluded.last_seen,
+    -- Rækken bliver kun genskrevet via denne gren når den rent faktisk blev
+    -- GENFUNDET i denne kørsel (se run_source() nedenfor) -- nulstil derfor
+    -- altid misses her, uanset dens tidligere værdi.
+    misses = 0
+    -- dismissed/dismissed_reason er BEVIDST udeladt her, se kommentaren
+    -- ovenfor, og det samme gælder sold_marker: KUN
+    -- kleinanzeigen.verify_sold_status() (kaldt separat fra main.py, se
+    -- dens docstring) må sætte/rydde det feltet, via en direkte UPDATE
+    -- udenom denne SQL -- ellers ville en helt almindelig prisændring her
+    -- nulstille et allerede bekræftet "solgt"-flag tilbage til 0, fordi en
+    -- normal fetch() (kun søgeresultat-kort) aldrig selv kan vide om en
+    -- allerede-gemt annonce sidenhen er blevet solgt.
 """
 
 
@@ -167,12 +180,25 @@ def run_source(
     )
     add_column_if_missing(store.connection, "listings", "image_url", "TEXT")
     add_column_if_missing(store.connection, "listings", "attributes_json", "TEXT")
+    # Solgt-detektion (2026-10-05, ported fra seng/PASPEAKERS -- se seng's
+    # pipeline.py's samme mønster): "misses" tæller op hver gang en allerede-
+    # kendt annonce for DENNE kilde+kategori ikke dukker op i en kørsel der
+    # selv fandt mindst ét resultat (se bulk-opdateringen efter loopet
+    # nedenfor) -- nulstilles til 0 hver gang annoncen genfindes. Frontend/
+    # Worker skjuler en annonce når misses >= 3 ELLER last_seen er over 48t
+    # gammel (samme to tærskler som seng/PASPEAKERS bruger i produktion).
+    # "sold_marker" er en SEPARAT, stærkere kilde-specifik bekræftelse (lige
+    # nu kun kleinanzeigen.verify_sold_status(), se main.py) -- sættes
+    # ALDRIG af denne generiske funktion, se _INSERT_SQL's kommentar.
+    add_column_if_missing(store.connection, "listings", "misses", "INTEGER NOT NULL DEFAULT 0")
+    add_column_if_missing(store.connection, "listings", "sold_marker", "INTEGER NOT NULL DEFAULT 0")
     store.connection.execute("UPDATE listings SET last_seen = first_seen WHERE last_seen IS NULL")
     store.connection.commit()
 
     raw_count = 0
     changed = 0
     price_drop_events: list[dict] = []
+    found_keys: set[str] = set()
 
     try:
         raw_listings = run_with_timeout(
@@ -265,6 +291,10 @@ def run_source(
             item_key = make_item_key(
                 source_name, listing.get("url"), listing.get("title"), listing.get("price_dkk")
             )
+            # Registreret uanset tilbehørs-/auktionsdomme ovenfor -- en
+            # annonce der stadig OPTRÆDER i denne kørsel skal aldrig få
+            # misses talt op, uanset hvordan den klassificeres.
+            found_keys.add(item_key)
             first_seen = datetime.datetime.now(datetime.UTC).isoformat()
 
             previous_row = store.connection.execute(
@@ -333,11 +363,13 @@ def run_source(
             )
             if not is_new_or_changed:
                 store.connection.execute(
-                    "UPDATE listings SET last_seen = ? WHERE item_key = ?",
+                    "UPDATE listings SET last_seen = ?, misses = 0 WHERE item_key = ?",
                     (first_seen, item_key),
                 )
                 store.connection.commit()
-                store.enqueue_update(TARGET_TABLE, {"item_key": item_key, "last_seen": first_seen})
+                store.enqueue_update(
+                    TARGET_TABLE, {"item_key": item_key, "last_seen": first_seen, "misses": 0}
+                )
                 continue
 
             store.connection.execute(_INSERT_SQL, payload)
@@ -357,6 +389,32 @@ def run_source(
                         "new_vurdering": verdict["vurdering"],
                         "observed_at": first_seen,
                     }
+                )
+
+        # Solgt-detektion, 2. halvdel (se misses-kommentaren ovenfor): tæl op
+        # for enhver EKSISTERENDE række for netop denne kilde+kategori der
+        # ikke optrådte i found_keys -- men KUN når denne kørsel selv fandt
+        # mindst ét resultat. Uden det guard ville en enkelt bot-wall-/
+        # 0-resultat-kørsel (se fx kleinanzeigen.py's/jyskauktion.py's egne
+        # bot-wall-håndtering) fejlagtigt markere HELE kildens beholdning som
+        # forsvundet på én gang -- samme faldgrube seng-projektets
+        # "found_keys_by_target"-mønster blev bygget til at undgå.
+        if found_keys:
+            placeholders = ",".join("?" for _ in found_keys)
+            store.connection.execute(
+                f"UPDATE listings SET misses = misses + 1 "
+                f"WHERE source = ? AND category = ? AND item_key NOT IN ({placeholders})",
+                (source_name, category.key, *found_keys),
+            )
+            store.connection.commit()
+            newly_missed = store.connection.execute(
+                f"SELECT item_key, misses FROM listings "
+                f"WHERE source = ? AND category = ? AND item_key NOT IN ({placeholders})",
+                (source_name, category.key, *found_keys),
+            ).fetchall()
+            for row in newly_missed:
+                store.enqueue_update(
+                    TARGET_TABLE, {"item_key": row["item_key"], "misses": row["misses"]}
                 )
 
         logger.info("%s: %d raw, %d new/changed", source_name, raw_count, changed)

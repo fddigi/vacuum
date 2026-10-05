@@ -20,6 +20,7 @@
     .cards { display: flex; flex-direction: column; gap: 10px; }
     .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
     .card-top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+    .card-main { flex: 1; min-width: 0; }
     .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; white-space: nowrap; }
     .badge.koeb { color: var(--koeb); background: var(--koeb-bg); }
     .badge.se { color: var(--se); background: var(--se-bg); }
@@ -46,10 +47,12 @@
     .sources-box .sources-label { color: var(--muted); font-size: 0.8rem; }
     .badge.prioritet { color: #8a5a00; background: #fff2d1; }
     .thumb { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); flex-shrink: 0; background: var(--bg); }
-    .category-tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+    .category-tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
     .category-tab { font: inherit; padding: 8px 16px; border: none; background: none; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; }
     .category-tab.active { color: var(--text); font-weight: 600; border-bottom-color: var(--text); }
     .category-tab[disabled] { color: #ccc; cursor: default; }
+    .dim-filter { width: 128px; }
+    .badge.stale { color: #8a5a00; background: #fff2d1; }
   </style>
 </head>
 <body>
@@ -91,17 +94,22 @@
            applyDoorDimensionFilter() nedenfor. Dette var selve opdraget:
            "kan ikke søge på mål på DBA", nu løst i vores eget dashboard. -->
       <span id="filters-doere" style="display: none">
-        <input type="number" id="filter-width-min" placeholder="Bredde min cm" style="width: 110px" />
-        <input type="number" id="filter-width-max" placeholder="Bredde max cm" style="width: 110px" />
-        <input type="number" id="filter-height-min" placeholder="Højde min cm" style="width: 105px" />
-        <input type="number" id="filter-height-max" placeholder="Højde max cm" style="width: 105px" />
+        <input type="number" class="dim-filter" id="filter-width-min" placeholder="Bredde min cm" />
+        <input type="number" class="dim-filter" id="filter-width-max" placeholder="Bredde max cm" />
+        <input type="number" class="dim-filter" id="filter-height-min" placeholder="Højde min cm" />
+        <input type="number" class="dim-filter" id="filter-height-max" placeholder="Højde max cm" />
       </span>
       <select id="sort">
         <option value="price_asc">Sortér: billigst</option>
         <option value="newest">Sortér: nyeste</option>
         <option value="priority">Sortér: prioritet</option>
       </select>
-      <label class="checkbox-label"><input type="checkbox" id="show-dismissed" /> Vis afviste</label>
+      <label class="checkbox-label" title="Dismissed = diskvalificeret af DIG manuelt. Ikke det samme som vurdering 'afvis' (automatisk klassificering), se dropdownen til venstre.">
+        <input type="checkbox" id="show-dismissed" /> Vis diskvalificerede
+      </label>
+      <label class="checkbox-label" title="Formodet solgt: annoncen er ikke genfundet i 3 kørsler i træk, eller ikke set i 48+ timer, eller (kun kleinanzeigen) bekræftet slettet/reserveret ved et direkte genbesøg. Skjules som standard, men ALDRIG slettet -- bruges til prishistorik.">
+        <input type="checkbox" id="show-stale" /> Vis også formodet solgte
+      </label>
       <button id="refresh">Opdatér</button>
     </div>
   </div>
@@ -146,6 +154,22 @@
       } catch {
         return [];
       }
+    }
+
+    // XSS-hærdning (2026-10-05, fundet af en Opus-valideringsagent): title/
+    // location/source/url/image_url/brand/model_label/dust_class/
+    // klasse_kilde/mangler_info/spoergsmaal_til_saelger/medfoelger/
+    // fire_rating kommer alle fra TREDJEPARTS marketplace-tekst (sælgerens
+    // egen titel m.m.), som tidligere gik direkte i innerHTML uden
+    // escaping. Ingen af de ~2700 rækker i databasen i dag indeholder "<"
+    // eller """, men en sælgers titel er ikke under vores kontrol -- en
+    // fremtidig annonce med fx et "<img onerror=...>" i titlen ville
+    // eksekveres. Escapes derfor konsekvent ved brug, ikke kun hvor en
+    // konkret udnyttelse allerede er observeret.
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, (c) => (
+        { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+      ));
     }
 
     function badgeClass(vurdering) {
@@ -265,6 +289,7 @@
         btn.classList.toggle("active", btn.dataset.category === category);
       });
       document.getElementById("page-title").textContent = CATEGORY_TITLES[category] ?? CATEGORY_LABELS[category];
+      document.title = CATEGORY_LABELS[category] ?? document.title;
       document.getElementById("filters-stoevsugere").style.display = category === "stoevsugere" ? "" : "none";
       document.getElementById("filters-doere").style.display = category === "doere" ? "" : "none";
       renderSourceCheckboxes();
@@ -313,9 +338,9 @@
       const fireRating = attrs.fire_rating;
       const dims = width && height ? `${width} × ${height} cm` : width || height ? `${width ?? "?"} × ${height ?? "?"} cm` : null;
       return `
-        ${dims ? `<span class="tag">Mål: ${dims}</span>` : `<span class="tag">Mål: ukendt</span>`}
-        ${thickness ? `<span class="tag">Tykkelse: ${thickness} cm</span>` : ""}
-        ${fireRating ? `<span class="tag">Brandklasse: ${fireRating}</span>` : ""}
+        ${dims ? `<span class="tag">Mål: ${escapeHtml(dims)}</span>` : `<span class="tag">Mål: ukendt</span>`}
+        ${thickness ? `<span class="tag">Tykkelse: ${escapeHtml(thickness)} cm</span>` : ""}
+        ${fireRating ? `<span class="tag">Brandklasse: ${escapeHtml(fireRating)}</span>` : ""}
       `;
     }
 
@@ -345,40 +370,44 @@
       const validatedBadge = row.valideret
         ? `<span class="badge koeb" title="Støvklasse bekræftet via modelnavn-match">✓ valideret</span>`
         : "";
+      const staleBadge = row.stale
+        ? `<span class="badge stale" title="Formodet solgt/forsvundet -- se 'Vis også formodet solgte'-tjekboksen">formodet solgt</span>`
+        : "";
 
       // Thumbnail (2026-10-05): kun DBA og jyskauktion opsamler et billede
       // pt. -- se sources/dba.py og sources/jyskauktion.py's docstrings.
       // Nullable for alle øvrige kilder, så feltet vises kun når det findes.
       const thumb = row.image_url
-        ? `<img class="thumb" src="${row.image_url}" alt="" loading="lazy" onerror="this.remove()">`
+        ? `<img class="thumb" src="${escapeHtml(row.image_url)}" alt="" loading="lazy" onerror="this.remove()">`
         : "";
 
       card.innerHTML = `
         <div class="card-top">
           ${thumb}
-          <div>
-            <span class="badge ${badgeClass(row.vurdering)}">${row.vurdering ?? "ukendt"}</span>
+          <div class="card-main">
+            <span class="badge ${badgeClass(row.vurdering)}">${escapeHtml(row.vurdering ?? "ukendt")}</span>
             ${isDoor ? "" : validatedBadge}
             ${isDoor ? "" : priorityBadge(row.prioritet)}
+            ${staleBadge}
             ${dismissedBadge}
-            <div class="title"><a href="${row.url}" target="_blank" rel="noopener">${row.title ?? "(uden titel)"}</a></div>
-            <div class="meta">${row.source ?? ""}${row.location ? " · " + row.location : ""} · score ${row.score ?? 0}${ageFlag}</div>
+            <div class="title"><a href="${escapeHtml(row.url)}" target="_blank" rel="noopener">${escapeHtml(row.title) || "(uden titel)"}</a></div>
+            <div class="meta">${escapeHtml(row.source)}${row.location ? " · " + escapeHtml(row.location) : ""} · score ${row.score ?? 0}${ageFlag}</div>
           </div>
           <div class="price">${priceText}</div>
         </div>
         <div class="tags">
           ${isDoor ? doorTags(row) : `
-          ${row.brand ? `<span class="tag">${row.brand} ${row.model_label ?? ""}</span>` : ""}
-          <span class="tag">Klasse: ${row.dust_class ?? "ukendt"}${row.klasse_kilde ? " (" + row.klasse_kilde + ")" : ""}</span>
+          ${row.brand ? `<span class="tag">${escapeHtml(row.brand)} ${escapeHtml(row.model_label ?? "")}</span>` : ""}
+          <span class="tag">Klasse: ${escapeHtml(row.dust_class ?? "ukendt")}${row.klasse_kilde ? " (" + escapeHtml(row.klasse_kilde) + ")" : ""}</span>
           <span class="tag">Asbestgodkendt: ${formatBool(row.asbestos_approved)}</span>
-          ${row.container_l ? `<span class="tag">${row.container_l} l</span>` : ""}
+          ${row.container_l ? `<span class="tag">${escapeHtml(row.container_l)} l</span>` : ""}
           ${row.battery ? `<span class="tag">Batteri</span>` : ""}
-          <span class="tag">Filterrens: ${row.filterrensning ?? "ukendt"}</span>
+          <span class="tag">Filterrens: ${escapeHtml(row.filterrensning ?? "ukendt")}</span>
           `}
-          ${accessories.length ? `<span class="tag">Medfølger: ${accessories.join(", ")}</span>` : ""}
+          ${accessories.length ? `<span class="tag">Medfølger: ${escapeHtml(accessories.join(", "))}</span>` : ""}
         </div>
-        ${missing.length ? `<div class="missing"><strong>Mangler info:</strong><ul>${missing.map((m) => `<li>${m}</li>`).join("")}</ul></div>` : ""}
-        ${questions.length ? `<details><summary>Spørgsmål til sælger (${questions.length})</summary><ul>${questions.map((q) => `<li>${q}</li>`).join("")}</ul></details>` : ""}
+        ${missing.length ? `<div class="missing"><strong>Mangler info:</strong><ul>${missing.map((m) => `<li>${escapeHtml(m)}</li>`).join("")}</ul></div>` : ""}
+        ${questions.length ? `<details><summary>Spørgsmål til sælger (${questions.length})</summary><ul>${questions.map((q) => `<li>${escapeHtml(q)}</li>`).join("")}</ul></details>` : ""}
         <div class="card-actions">
           <button class="dismiss-btn" type="button">${row.dismissed ? "Genskab" : "Diskvalificér"}</button>
         </div>
@@ -429,10 +458,19 @@
     async function loadListings() {
       const params = new URLSearchParams();
       params.set("category", activeCategory);
+      // Loftet på 500 (Workerens default) gjorde dør-målfiltreringen
+      // reelt ubrugelig: filtret kører klient-side (se
+      // applyDoorDimensionFilter) på de hentede rækker, men med 1178+
+      // dørannoncer og default-sortering "billigst" var op til 77% af et
+      // reelt mål-match uden for de 500 billigste og dermed usynligt.
+      // 2000 er Workerens eget hårde loft (se worker/src/index.ts) og
+      // dækker begge kategoriers fulde beholdning i dag.
+      params.set("limit", "2000");
       const vurdering = document.getElementById("filter-vurdering").value;
       const sources = checkedSources();
       const sort = document.getElementById("sort").value;
       const showDismissed = document.getElementById("show-dismissed").checked;
+      const showStale = document.getElementById("show-stale").checked;
       if (vurdering) params.set("vurdering", vurdering);
       // Kun send "sources" når ikke ALLE kilder er valgt -- undgår en
       // unødvendigt lang querystring i det (langt hyppigste) tilfælde hvor
@@ -453,6 +491,7 @@
       }
       params.set("sort", sort);
       if (showDismissed) params.set("include_dismissed", "1");
+      if (showStale) params.set("include_stale", "1");
 
       const res = await fetch(`${API_BASE}/api/listings?${params.toString()}`, { headers: authHeaders() });
       if (!res.ok) {
@@ -478,9 +517,17 @@
     document.getElementById("sort").addEventListener("change", loadListings);
     document.getElementById("show-dismissed").addEventListener("change", loadListings);
     document.getElementById("show-validated-only").addEventListener("change", loadListings);
+    document.getElementById("show-stale").addEventListener("change", loadListings);
     document.getElementById("refresh").addEventListener("click", loadListings);
+    // Debounced (300ms): uden dette udløste hvert enkelt tastetryk i et
+    // mål-felt sit eget fulde API-kald (fundet af en Opus-valideringsagent,
+    // 2026-10-05) -- at taste "200" gav tre kald i stedet for ét.
+    let dimFilterTimer = null;
     for (const id of ["filter-width-min", "filter-width-max", "filter-height-min", "filter-height-max"]) {
-      document.getElementById(id).addEventListener("input", loadListings);
+      document.getElementById(id).addEventListener("input", () => {
+        clearTimeout(dimFilterTimer);
+        dimFilterTimer = setTimeout(loadListings, 300);
+      });
     }
 
     document.getElementById("logout").addEventListener("click", async () => {

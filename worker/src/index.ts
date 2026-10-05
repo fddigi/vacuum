@@ -151,6 +151,15 @@ const PRIORITET_CASE_SQL = `CASE
   ELSE 0
 END AS prioritet`;
 
+// Solgt-detektion (2026-10-05, se scraper/scraper/pipeline.py's docstring):
+// tre uafhængige signaler, ethvert af dem er nok. sold_marker er en
+// kildespecifik, bekræftet detektion (i dag kun kleinanzeigen.de, se
+// scraper/scraper/sources/kleinanzeigen.py's verify_sold_status()). misses
+// og last_seen er generiske, afledt af fravær fra scraping (se pipeline.py's
+// run_source()). Tærsklerne (3 misses / 48t) er identiske med seng/
+// PASPEAKERS' egne, allerede produktionsafprøvede værdier.
+const STALE_SQL = `(sold_marker = 1 OR misses >= 3 OR (julianday('now') - julianday(last_seen)) * 24 >= 48)`;
+
 async function ensureColumn(
   db: ReturnType<typeof getDbClient>,
   table: string,
@@ -186,6 +195,13 @@ app.get("/api/listings", requireAuth, async (c) => {
   const dustClass = c.req.query("dust_class");
   const includeDismissed = c.req.query("include_dismissed") === "1";
   const validatedOnly = c.req.query("validated") === "1";
+  // Solgt-detektion (2026-10-05, se scraper/scraper/pipeline.py's docstring
+  // for hele mekanismen, ported fra seng/PASPEAKERS): "stale" = formodet
+  // solgt/forsvundet, skjules som standard ligesom "dismissed", men via et
+  // SEPARAT flag -- "stale" er en AUTOMATISK afledning (misses/last_seen/
+  // sold_marker), "dismissed" er brugerens egen manuelle handling. Samme to
+  // tærskler (48t / 3 misses) som seng/PASPEAKERS bruger i produktion.
+  const includeStale = c.req.query("include_stale") === "1";
   // Kategori-generalisering (2026-10-03, se scraper/scraper/categories.py's
   // docstring): "vacuum" dækker nu hele SHV-sourcingen, ikke kun
   // sikkerhedsstøvsugere. Ingen filter = alle kategorier (i dag betyder det
@@ -198,6 +214,8 @@ app.get("/api/listings", requireAuth, async (c) => {
   await ensureColumn(db, "listings", "category", "TEXT NOT NULL DEFAULT 'stoevsugere'");
   await ensureColumn(db, "listings", "image_url", "TEXT");
   await ensureColumn(db, "listings", "attributes_json", "TEXT");
+  await ensureColumn(db, "listings", "misses", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(db, "listings", "sold_marker", "INTEGER NOT NULL DEFAULT 0");
 
   const conditions: string[] = [];
   const args: (string | number)[] = [];
@@ -225,6 +243,9 @@ app.get("/api/listings", requireAuth, async (c) => {
   // frontend/index.html, som sætter include_dismissed=1 for at se dem igen.
   if (!includeDismissed) {
     conditions.push("dismissed = 0");
+  }
+  if (!includeStale) {
+    conditions.push(`NOT ${STALE_SQL}`);
   }
   // "Valideret" (Opus 5-anbefaling, 2026-09-20): en UAFHÆNGIG akse fra
   // vurdering ("er klassen bekræftet?" vs. "er det et godt køb?") - se
@@ -282,6 +303,7 @@ app.get("/api/listings", requireAuth, async (c) => {
     sql: `SELECT listings.*,
       (julianday('now') - julianday(first_seen)) >= 30 AS forhandlingsmulighed,
       (model_key IS NOT NULL AND klasse_kilde = 'modelnavn' AND dust_class = 'H') AS valideret,
+      ${STALE_SQL} AS stale,
       ${PRIORITET_CASE_SQL},
       (SELECT pct_change FROM price_history ph
         WHERE ph.item_key = listings.item_key ORDER BY ph.id DESC LIMIT 1) AS latest_price_drop_pct,

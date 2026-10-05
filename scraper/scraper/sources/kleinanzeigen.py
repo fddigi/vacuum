@@ -36,6 +36,77 @@ BASE_URL = "https://www.kleinanzeigen.de"
 
 BOT_WALL_MARKERS = ["captcha", "unusual traffic", "bot check", "access denied", "geo.captcha"]
 
+# Solgt-verifikation (2026-10-05): MÅLT live mod 25 reelle, gemte
+# kleinanzeigen-URL'er (de 25 ældste rækker i Turso, last_seen 6+ dage gammel
+# på målingstidspunktet) ved direkte genbesøg af selve annonce-URL'en (ikke
+# søgeresultatet -- søgekortene viser INTET solgt/reserveret-tekstmærke, 0
+# træf på "reserviert"/"verkauft" i 58 friske kort hen over 3 søgeord, se
+# README/commit for den fulde log). Af de 25 gensøgte detail-sider havde
+# NETOP disse to <h1>-præfikser (7 "Gelöscht", 2 "Reserviert", 16 slet intet
+# præfiks -- stadig aktive annoncer): sitet sætter altså status-ordet direkte
+# forrest i <h1> som "<Status> • <titel>", KUN synligt ved et faktisk besøg
+# på annoncens egen side, aldrig i et søgeresultat-kort. Derfor en separat
+# verifikationsfunktion (kaldt fra main.py, IKKE fra fetch()) for allerede-
+# gemte, formodet-forsvundne rækker -- ikke en del af selve søgnings-flowet.
+_SOLD_H1_PREFIX_PATTERN = re.compile(r"^(Gelöscht|Reserviert)\s*•")
+
+
+def verify_sold_status(urls: list[str], config: dict) -> dict[str, bool]:
+    """Genbesøger hver URL direkte og returnerer {url: bool} -- True hvis
+    <h1> bekræfter solgt/reserveret (se mønsteret ovenfor), False hvis siden
+    blev hentet normalt uden det præfiks (dvs. BEKRÆFTET stadig aktiv). En
+    URL der helt UDELADES fra resultatet betyder "kunne ikke verificeres"
+    (netværksfejl, bot-wall, timeout) -- kaldstedet skal lade dens
+    eksisterende misses/sold_marker-værdi stå uændret i det tilfælde,
+    hverken sætte den som solgt eller nulstille dens miss-tæller. Fejler
+    aldrig: en enkelt URLs fejl logges og springes over, resten fortsætter."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        logger.warning("Kleinanzeigen: playwright er ikke installeret, springer verifikation over")
+        return {}
+
+    pw_cfg = config.get("playwright", {})
+    min_delay = pw_cfg.get("min_delay_s", 3)
+    max_delay = pw_cfg.get("max_delay_s", 8)
+    headless = pw_cfg.get("headless", True)
+
+    results: dict[str, bool] = {}
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=headless)
+            for url in urls:
+                context = browser.new_context(
+                    user_agent=(
+                        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+                    ),
+                    viewport={"width": 1280, "height": 900},
+                    locale="de-DE",
+                )
+                page = context.new_page()
+                try:
+                    page.goto(url, timeout=15000)
+                    _dismiss_gdpr_banner(page)
+                    page.wait_for_timeout(1500)
+                    h1 = page.query_selector("h1")
+                    h1_text = h1.inner_text().strip() if h1 else ""
+                    results[url] = bool(_SOLD_H1_PREFIX_PATTERN.match(h1_text))
+                    time.sleep(random.uniform(min_delay, max_delay))
+                except Exception:
+                    logger.exception(
+                        "Kleinanzeigen: kunne ikke verificere solgt-status for %s, springer over",
+                        url,
+                    )
+                finally:
+                    context.close()
+            browser.close()
+    except Exception:
+        logger.exception("Kleinanzeigen: solgt-verifikation fejlede helt for denne kørsel")
+        return results
+
+    return results
+
 
 def _build_search_url(term: str, page_num: int = 1) -> str:
     # KRITISK FUND (live-test 2026-09-19), TO LAG: søgeordet indgår her i
