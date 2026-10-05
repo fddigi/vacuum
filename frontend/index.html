@@ -53,20 +53,20 @@
   </style>
 </head>
 <body>
-  <!-- Kategori-faneblade (2026-10-03): "vacuum" dækker nu hele SHV-
+  <!-- Kategori-faneblade (2026-10-03/05): "vacuum" dækker nu hele SHV-
        sourcingen, ikke kun sikkerhedsstøvsugere -- se
-       scraper/scraper/categories.py's docstring. Kun ÉN kategori har reelt
-       data/UI endnu; resten vises deaktiverede som en synlig markør af
-       hvad der er planlagt, i stedet for at dukke op uden varsel senere. -->
+       scraper/scraper/categories.py's docstring. Kun to kategorier har reelt
+       data/backend endnu (stoevsugere/doere); resten vises deaktiveret som
+       en synlig markør af hvad der er planlagt. -->
   <div class="category-tabs">
     <button class="category-tab active" data-category="stoevsugere">🧹 Sikkerhedsstøvsugere</button>
-    <button class="category-tab" disabled title="Under opbygning">🚪 Døre</button>
+    <button class="category-tab" data-category="doere">🚪 Døre</button>
     <button class="category-tab" disabled title="Under opbygning">🔥 Brandvinduer</button>
   </div>
 
   <div class="topbar">
     <div>
-      <h1>Sikkerhedsstøvsugere (støvklasse H/M)</h1>
+      <h1 id="page-title">Sikkerhedsstøvsugere (støvklasse H/M)</h1>
       <div class="meta">Logget ind som <span id="whoami">...</span> · <button id="logout">log ud</button></div>
     </div>
     <div class="filters">
@@ -76,18 +76,31 @@
         <option value="se nærmere">Se nærmere</option>
         <option value="afvis">Afvist</option>
       </select>
-      <select id="filter-klasse">
-        <option value="H" selected>Kun H-klasse</option>
-        <option value="">Alle klasser (inkl. M)</option>
-      </select>
+      <span id="filters-stoevsugere">
+        <select id="filter-klasse">
+          <option value="H" selected>Kun H-klasse</option>
+          <option value="">Alle klasser (inkl. M)</option>
+        </select>
+        <label class="checkbox-label" title="Støvklasse bekræftet via et faktisk modelnavn-match, ikke kun mærkeomtale. Uafhængig af vurdering (køb nu/se nærmere/afvis) - en valideret maskine kan sagtens være afvist på pris.">
+          <input type="checkbox" id="show-validated-only" /> Kun validerede
+        </label>
+      </span>
+      <!-- Døre har ingen backend-filtrering på mål endnu (attributes_json
+           er en JSON-blob, ikke forespørgelige kolonner) -- min/max anvendes
+           derfor klient-side på det allerede hentede resultat, se
+           applyDoorDimensionFilter() nedenfor. Dette var selve opdraget:
+           "kan ikke søge på mål på DBA", nu løst i vores eget dashboard. -->
+      <span id="filters-doere" style="display: none">
+        <input type="number" id="filter-width-min" placeholder="Bredde min cm" style="width: 110px" />
+        <input type="number" id="filter-width-max" placeholder="Bredde max cm" style="width: 110px" />
+        <input type="number" id="filter-height-min" placeholder="Højde min cm" style="width: 105px" />
+        <input type="number" id="filter-height-max" placeholder="Højde max cm" style="width: 105px" />
+      </span>
       <select id="sort">
         <option value="price_asc">Sortér: billigst</option>
         <option value="newest">Sortér: nyeste</option>
         <option value="priority">Sortér: prioritet</option>
       </select>
-      <label class="checkbox-label" title="Støvklasse bekræftet via et faktisk modelnavn-match, ikke kun mærkeomtale. Uafhængig af vurdering (køb nu/se nærmere/afvis) - en valideret maskine kan sagtens være afvist på pris.">
-        <input type="checkbox" id="show-validated-only" /> Kun validerede
-      </label>
       <label class="checkbox-label"><input type="checkbox" id="show-dismissed" /> Vis afviste</label>
       <button id="refresh">Opdatér</button>
     </div>
@@ -151,38 +164,63 @@
     // kilde 2026-09-30, EFTER denne liste blev skrevet). Konsekvensen var
     // værre end "ingen toggle" -- fordi kleinanzeigen starter slukket,
     // sendte loadListings() allerede en EKSPLICIT ?sources=-liste ved hvert
-    // besøg (se "sources.length < ALL_SOURCES.length" nedenfor), og den
+    // besøg (se "sources.length < allSources().length" nedenfor), og den
     // liste kendte ikke facebook, så Facebook-fund blev tavst filtreret væk
     // for enhver bruger der nogensinde har haft kleinanzeigen slået fra.
-    const ALL_SOURCES = [
-      "dba",
-      "guloggratis",
-      "kleinanzeigen",
-      "blocket",
-      "vinted",
-      "klaravik",
-      "auktionshuset",
-      "retrade",
-      "facebook",
-    ];
+    // SAMME FEJLKLASSE RETTET IGEN 2026-10-05 for "jyskauktion".
+    // Kilder er nu PR. KATEGORI (2026-10-05) -- "doere" har kun genbyg+dba
+    // aktiveret i config.doere.yaml, mens "stoevsugere" har ni kilder. Hver
+    // kategori har sin egen localStorage-nøgle, så et til/fra-valg for
+    // "dba" under støvsugere ikke påvirker "dba" under døre eller omvendt.
+    // RETTET 2026-10-05: "jyskauktion" manglede fra denne liste (tilføjet
+    // som kilde 2026-10-03/04, EFTER denne liste blev skrevet) -- samme
+    // fejlklasse som den tidligere facebook-mangel (se commit-historik).
+    const CATEGORY_SOURCES = {
+      stoevsugere: [
+        "dba",
+        "guloggratis",
+        "kleinanzeigen",
+        "blocket",
+        "vinted",
+        "klaravik",
+        "auktionshuset",
+        "retrade",
+        "facebook",
+        "jyskauktion",
+      ],
+      doere: ["genbyg", "dba"],
+    };
+    const CATEGORY_LABELS = { stoevsugere: "Sikkerhedsstøvsugere", doere: "Døre" };
+    const CATEGORY_TITLES = {
+      stoevsugere: "Sikkerhedsstøvsugere (støvklasse H/M)",
+      doere: "Døre (branddøre, indvendige døre, yderdøre)",
+    };
     const SOURCES_OFF_BY_DEFAULT = new Set(["kleinanzeigen"]);
-    const SOURCES_STORAGE_KEY = "vacuum_source_filters_v1";
+    let activeCategory = "stoevsugere";
+
+    function allSources() {
+      return CATEGORY_SOURCES[activeCategory];
+    }
+
+    function sourcesStorageKey() {
+      return `vacuum_source_filters_v1_${activeCategory}`;
+    }
 
     function loadSourcePrefs() {
       try {
-        const raw = localStorage.getItem(SOURCES_STORAGE_KEY);
+        const raw = localStorage.getItem(sourcesStorageKey());
         if (raw) return JSON.parse(raw);
       } catch {
         // ignoreres -- falder tilbage til default herunder
       }
       const defaults = {};
-      for (const s of ALL_SOURCES) defaults[s] = !SOURCES_OFF_BY_DEFAULT.has(s);
+      for (const s of allSources()) defaults[s] = !SOURCES_OFF_BY_DEFAULT.has(s);
       return defaults;
     }
 
     function saveSourcePrefs(prefs) {
       try {
-        localStorage.setItem(SOURCES_STORAGE_KEY, JSON.stringify(prefs));
+        localStorage.setItem(sourcesStorageKey(), JSON.stringify(prefs));
       } catch {
         // ignoreres -- kun en bekvemmelighed, ikke kritisk tilstand
       }
@@ -190,8 +228,9 @@
 
     function renderSourceCheckboxes() {
       const box = document.getElementById("sources-box");
+      box.innerHTML = '<span class="sources-label">Kilder:</span>';
       const prefs = loadSourcePrefs();
-      for (const source of ALL_SOURCES) {
+      for (const source of allSources()) {
         const label = document.createElement("label");
         label.className = "checkbox-label";
         if (source === "kleinanzeigen") {
@@ -217,6 +256,19 @@
       return [...document.querySelectorAll("#sources-box input[type=checkbox]")]
         .filter((cb) => cb.checked)
         .map((cb) => cb.dataset.source);
+    }
+
+    function switchCategory(category) {
+      if (category === activeCategory) return;
+      activeCategory = category;
+      document.querySelectorAll(".category-tab").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.category === category);
+      });
+      document.getElementById("page-title").textContent = CATEGORY_TITLES[category] ?? CATEGORY_LABELS[category];
+      document.getElementById("filters-stoevsugere").style.display = category === "stoevsugere" ? "" : "none";
+      document.getElementById("filters-doere").style.display = category === "doere" ? "" : "none";
+      renderSourceCheckboxes();
+      loadListings();
     }
 
     function priorityBadge(stars) {
@@ -245,6 +297,37 @@
       return true;
     }
 
+    function doorTags(row) {
+      // Dør-attributter ligger i attributes_json (generisk JSON-blob, se
+      // pipeline.py), IKKE i de navngivne støvsuger-kolonner (dust_class
+      // osv.), som altid er NULL for category="doere".
+      let attrs = {};
+      try {
+        attrs = JSON.parse(row.attributes_json || "{}") || {};
+      } catch {
+        attrs = {};
+      }
+      const width = attrs.width_cm;
+      const height = attrs.height_cm;
+      const thickness = attrs.thickness_cm;
+      const fireRating = attrs.fire_rating;
+      const dims = width && height ? `${width} × ${height} cm` : width || height ? `${width ?? "?"} × ${height ?? "?"} cm` : null;
+      return `
+        ${dims ? `<span class="tag">Mål: ${dims}</span>` : `<span class="tag">Mål: ukendt</span>`}
+        ${thickness ? `<span class="tag">Tykkelse: ${thickness} cm</span>` : ""}
+        ${fireRating ? `<span class="tag">Brandklasse: ${fireRating}</span>` : ""}
+      `;
+    }
+
+    function doorDimensions(row) {
+      try {
+        const attrs = JSON.parse(row.attributes_json || "{}") || {};
+        return { width: attrs.width_cm ?? null, height: attrs.height_cm ?? null };
+      } catch {
+        return { width: null, height: null };
+      }
+    }
+
     function renderCard(row) {
       const card = document.createElement("div");
       card.className = "card" + (row.dismissed ? " is-dismissed" : "");
@@ -252,6 +335,7 @@
       const missing = parseJsonArray(row.mangler_info);
       const questions = parseJsonArray(row.spoergsmaal_til_saelger);
       const accessories = parseJsonArray(row.medfoelger);
+      const isDoor = row.category === "doere";
 
       const priceText = row.price_dkk != null ? `${Math.round(row.price_dkk).toLocaleString("da-DK")} kr.` : "pris ukendt";
       const ageFlag = row.forhandlingsmulighed ? ` · <span class="tag">30+ dage &rarr; forhandlingsmulighed</span>` : "";
@@ -274,8 +358,8 @@
           ${thumb}
           <div>
             <span class="badge ${badgeClass(row.vurdering)}">${row.vurdering ?? "ukendt"}</span>
-            ${validatedBadge}
-            ${priorityBadge(row.prioritet)}
+            ${isDoor ? "" : validatedBadge}
+            ${isDoor ? "" : priorityBadge(row.prioritet)}
             ${dismissedBadge}
             <div class="title"><a href="${row.url}" target="_blank" rel="noopener">${row.title ?? "(uden titel)"}</a></div>
             <div class="meta">${row.source ?? ""}${row.location ? " · " + row.location : ""} · score ${row.score ?? 0}${ageFlag}</div>
@@ -283,12 +367,14 @@
           <div class="price">${priceText}</div>
         </div>
         <div class="tags">
+          ${isDoor ? doorTags(row) : `
           ${row.brand ? `<span class="tag">${row.brand} ${row.model_label ?? ""}</span>` : ""}
           <span class="tag">Klasse: ${row.dust_class ?? "ukendt"}${row.klasse_kilde ? " (" + row.klasse_kilde + ")" : ""}</span>
           <span class="tag">Asbestgodkendt: ${formatBool(row.asbestos_approved)}</span>
           ${row.container_l ? `<span class="tag">${row.container_l} l</span>` : ""}
           ${row.battery ? `<span class="tag">Batteri</span>` : ""}
           <span class="tag">Filterrens: ${row.filterrensning ?? "ukendt"}</span>
+          `}
           ${accessories.length ? `<span class="tag">Medfølger: ${accessories.join(", ")}</span>` : ""}
         </div>
         ${missing.length ? `<div class="missing"><strong>Mangler info:</strong><ul>${missing.map((m) => `<li>${m}</li>`).join("")}</ul></div>` : ""}
@@ -317,40 +403,64 @@
       return card;
     }
 
+    // Dør-mål-filtrering (2026-10-05): dette var selve det oprindelige
+    // opdrag ("man kan ikke søge på mål på DBA") -- løst klient-side her,
+    // da attributes_json er en JSON-blob i databasen, ikke forespørgelige
+    // kolonner Workeren kan filtrere på endnu.
+    function applyDoorDimensionFilter(listings) {
+      if (activeCategory !== "doere") return listings;
+      const widthMin = parseFloat(document.getElementById("filter-width-min").value);
+      const widthMax = parseFloat(document.getElementById("filter-width-max").value);
+      const heightMin = parseFloat(document.getElementById("filter-height-min").value);
+      const heightMax = parseFloat(document.getElementById("filter-height-max").value);
+      if ([widthMin, widthMax, heightMin, heightMax].every((v) => Number.isNaN(v))) {
+        return listings;
+      }
+      return listings.filter((row) => {
+        const { width, height } = doorDimensions(row);
+        if (!Number.isNaN(widthMin) && (width == null || width < widthMin)) return false;
+        if (!Number.isNaN(widthMax) && (width == null || width > widthMax)) return false;
+        if (!Number.isNaN(heightMin) && (height == null || height < heightMin)) return false;
+        if (!Number.isNaN(heightMax) && (height == null || height > heightMax)) return false;
+        return true;
+      });
+    }
+
     async function loadListings() {
       const params = new URLSearchParams();
-      // Kategori-generalisering (2026-10-03): kun ét aktivt faneblad findes
-      // endnu (se category-tabs ovenfor), men sendes allerede eksplicit, så
-      // mekanikken er afprøvet før faneblad nr. 2 kommer til.
-      params.set("category", "stoevsugere");
+      params.set("category", activeCategory);
       const vurdering = document.getElementById("filter-vurdering").value;
       const sources = checkedSources();
-      const klasse = document.getElementById("filter-klasse").value;
       const sort = document.getElementById("sort").value;
       const showDismissed = document.getElementById("show-dismissed").checked;
-      const validatedOnly = document.getElementById("show-validated-only").checked;
       if (vurdering) params.set("vurdering", vurdering);
       // Kun send "sources" når ikke ALLE kilder er valgt -- undgår en
       // unødvendigt lang querystring i det (langt hyppigste) tilfælde hvor
       // brugeren ikke har afkrydset noget fra.
-      if (sources.length > 0 && sources.length < ALL_SOURCES.length) {
+      if (sources.length > 0 && sources.length < allSources().length) {
         params.set("sources", sources.join(","));
       } else if (sources.length === 0) {
         // Alle kilder fravalgt -- bed eksplicit om en kilde der ikke findes,
         // så resultatet bliver tomt i stedet for (fejlagtigt) "alle kilder".
         params.set("sources", "__none__");
       }
-      if (klasse) params.set("dust_class", klasse);
+      // H-klasse og "kun validerede" er kun relevante for stoevsugere --
+      // felterne findes slet ikke i DOM'en for døre (se filters-doere).
+      if (activeCategory === "stoevsugere") {
+        const klasse = document.getElementById("filter-klasse").value;
+        if (klasse) params.set("dust_class", klasse);
+        if (document.getElementById("show-validated-only").checked) params.set("validated", "1");
+      }
       params.set("sort", sort);
       if (showDismissed) params.set("include_dismissed", "1");
-      if (validatedOnly) params.set("validated", "1");
 
       const res = await fetch(`${API_BASE}/api/listings?${params.toString()}`, { headers: authHeaders() });
       if (!res.ok) {
         document.getElementById("error").textContent = "Kunne ikke hente data.";
         return;
       }
-      const { listings } = await res.json();
+      const { listings: rawListings } = await res.json();
+      const listings = applyDoorDimensionFilter(rawListings);
       const container = document.getElementById("cards");
       container.innerHTML = "";
       document.getElementById("empty").style.display = listings.length ? "none" : "block";
@@ -359,12 +469,19 @@
       }
     }
 
+    document.querySelectorAll(".category-tab[data-category]").forEach((btn) => {
+      btn.addEventListener("click", () => switchCategory(btn.dataset.category));
+    });
+
     document.getElementById("filter-vurdering").addEventListener("change", loadListings);
     document.getElementById("filter-klasse").addEventListener("change", loadListings);
     document.getElementById("sort").addEventListener("change", loadListings);
     document.getElementById("show-dismissed").addEventListener("change", loadListings);
     document.getElementById("show-validated-only").addEventListener("change", loadListings);
     document.getElementById("refresh").addEventListener("click", loadListings);
+    for (const id of ["filter-width-min", "filter-width-max", "filter-height-min", "filter-height-max"]) {
+      document.getElementById(id).addEventListener("input", loadListings);
+    }
 
     document.getElementById("logout").addEventListener("click", async () => {
       await fetch(`${API_BASE}/logout`, { method: "POST", headers: authHeaders() }).catch(() => {});
