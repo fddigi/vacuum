@@ -127,6 +127,60 @@ def test_classify_se_naermere_when_dimensions_found():
     assert len(result["spoergsmaal_til_saelger"]) > 0
 
 
+def test_fire_rating_requires_door_window_context():
+    """P3 (Opus-review af 935 live DBA-titler, 2026-10-05): uden et dør-/
+    vindues-/glas-/karm-ord matchede _FIRE_CLASS_PATTERN også andre
+    produkters EGNE typenumre -- 3 MÅLTE falske positiver, verbatim fra
+    research."""
+    assert extract_fire_rating("Blu-ray afspiller, Panasonic, BMP-BD30") is None
+    assert extract_fire_rating("Wacker BS60-4 Jordloppe") is None
+    assert extract_fire_rating("Jordloppe Wacker BS60-2i") is None
+    # Ægte fund skal stadig virke -- konteksten ("dør") er til stede.
+    assert extract_fire_rating("Stål branddør EI60 mål 90 x 210 cm") == "EI60"
+    assert extract_fire_rating("Stålbranddør EI60") == "EI60"
+
+
+def test_karmsaet_alone_is_an_accessory_not_a_whole_door():
+    """P11: 'Swedoor karmsæt tung 128 mm 8x21' blev vist som en hel dør
+    (modulmål-grenen læste '8x21' som 80x210cm), men et karmsæt er løst
+    tilbehør uden dørblad. Verbatim fra research, 2026-10-05."""
+    assert is_accessory_title("Swedoor karmsæt tung 128 mm 8x21")
+    # Et karmsæt der sælges MED en hel dør skal stadig IKKE afvises (samme
+    # R11-mønster som øvrige _ACCESSORY_WORD-ord).
+    assert not is_accessory_title("Hvid yderdør 91x216 cm med karmsæt")
+
+
+def test_classify_scores_a_single_known_dimension_too():
+    """P10: gren 4 i doere_normalize.py (ét mål, intet brandklasse-tal) gav
+    hidtil altid 0 point her, fordi classify() krævede BÅDE bredde og
+    højde -- dermed reelt død kode. Nu +1 for ét mål alene. To MÅLTE reelle
+    tab: 'Sweedoor Hvid indvendig dør 203 cm' og 'Hvid terrassedør h 210,8
+    cm.' endte begge som afvis uden denne rettelse."""
+    listing = {"attributes": {"height_cm": 203.0}}
+    result = classify(listing, {})
+    assert result["vurdering"] == "se nærmere"
+    assert result["score"] == 1
+
+
+def test_classify_scores_explicit_brand_word_even_without_a_number():
+    """P2 (samme review): 19% af alt med eksplicit brand-ordforråd (31 af
+    159 titler) blev afvist, fordi selve ordet 'branddør'/'brandvindue'
+    vejede intet uden et numerisk klassetal. 28 af de 31 var ægte
+    branddøre/-vinduer uden tal i titlen -- to verbatim eksempler herunder."""
+    listing = {"attributes": {}, "title": "Branddøre af mærket Safco Doors"}
+    result = classify(listing, {})
+    assert result["vurdering"] == "se nærmere"
+    assert result["score"] == 1
+
+    listing2 = {"attributes": {}, "title": "Helt nye brandvinduer"}
+    result2 = classify(listing2, {})
+    assert result2["vurdering"] == "se nærmere"
+
+    # Uden et brandord OG uden mål/klasse skal afvis stadig stå fast.
+    listing3 = {"attributes": {}, "title": "Et helt almindeligt bord"}
+    assert classify(listing3, {})["vurdering"] == "afvis"
+
+
 def test_classify_scores_fire_rating_and_thickness_too():
     listing = {
         "attributes": {

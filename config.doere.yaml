@@ -24,17 +24,42 @@ sources:
   dba: true
 
 search_terms:
+  # RETTET 2026-10-05 efter en Opus-undersøgelse af 935 live DBA-titler
+  # (bruger-rapport: "fyldt med random drikkeglas og vinduer i dashboard").
+  # Fire konkrete, MÅLTE ændringer (se doere_normalize.py/doere_classify.py
+  # for de ledsagende klassifikationsfix):
+  #  1. "brandglas" citeret ("\"brandglas\"") -- usiteret gav DBA 53
+  #     resultater hvoraf 40 (75%) var generisk drikke-/samlerglas (sitets
+  #     sammensætnings-opsplitning polstrer op til et fast loft på en
+  #     side); citeret: 16 resultater, kun 3 urelaterede, 13/13 ægte
+  #     brandglas-fund bevaret. dba.py kræver INGEN kodeændring -- dens
+  #     `quote(term)` url-encoder anførselstegnene korrekt.
+  #  2. "terrassedør" citeret af samme grund: usiteret var 42 af 54
+  #     side-1-kort ÉN forhandlers (Bautik ApS) serie af fabriksnye
+  #     PVC-døre, 0 med brandklasse; citeret bortfalder hele serien, 0
+  #     Bautik-kort tilbage.
+  #  3. "vindue" fjernet: 0 af 162 hentede rækker over 3 sider havde en
+  #     brandklasse (hele pointen med "brandvindue"/BD60 i denne kategori),
+  #     og 17 af 162 var slet ikke vinduesprodukter (bøger, biler, plante).
+  #  4. "BS60"/"EI30"/"brandvinduer"/"brandparti" tilføjet: begge
+  #     brandklassesystemer kendes allerede af extract_fire_rating(), men
+  #     ingen søgeterm hentede dem -- BS60 gav 49/53 med brandklasse ved
+  #     direkte test, EI30 7/13, brandvinduer (flertal, et delvist andet
+  #     søgeresultat end ental) 9/53, brandparti 1/2.
   primary:
     - "branddør"
     - "BD30"
     - "BD60"
     - "indvendig dør"
     - "yderdør"
-    - "terrassedør"
-    - "vindue"
+    - "\"terrassedør\""
     - "brandvindue"
-    - "brandglas"
+    - "brandvinduer"
+    - "brandparti"
+    - "\"brandglas\""
     - "EI60"
+    - "EI30"
+    - "BS60"
   secondary: []
 
 currency:

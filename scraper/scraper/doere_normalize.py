@@ -132,8 +132,15 @@ ACCESSORY_OR_RENTAL_PATTERN = re.compile(
     r"\b(udlejning|til\s*leje|søges|k[øo]bes)\b",
     re.I,
 )
+# "karmsæt" tilføjet 2026-10-05 (P11, Opus-review): "Swedoor karmsæt tung
+# 128 mm 8x21" blev vist som en hel dør (_MODULE_PAIR læste "8x21" som
+# 80x210cm), men er et løst karmsæt. Bevidst KUN dette ord, ikke hele
+# _ACCESSORY_HEAD-ordforrådet ovenfor -- målt konsekvens af den bredere
+# liste ville være 30 fejlafviste hele døre for 1 korrekt fangst (samme R11-
+# lektie: karm/skinne/lås nævnes tit i "med karm"-salg af en hel dør).
 _ACCESSORY_WORD = re.compile(
-    r"\b(d[øo]rgreb[\w]*|h[åa]ndtag|h[æa]ngsel|h[æa]ngsler|d[øo]rpumpe[r]?|d[øo]rstopper[e]?)\b",
+    r"\b(d[øo]rgreb[\w]*|h[åa]ndtag|h[æa]ngsel|h[æa]ngsler|d[øo]rpumpe[r]?|d[øo]rstopper[e]?|"
+    r"karms[æa]t)\b",
     re.I,
 )
 _INCLUDED_HARDWARE_CONTEXT = re.compile(r"\b(med|inkl\.?|uden)\b|\bm\.", re.I)
@@ -292,14 +299,28 @@ _FIRE_BARE_PATTERN = re.compile(
     r"\bbrand(?:glas|rude|d[øo]re?|parti\w*|vindue\w*)\s*(30|60|90|120)\b", re.I
 )
 
+# P3 (Opus-review, 2026-10-05): _FIRE_CLASS_PATTERN alene krævede intet dør-/
+# vindueskontekst og gav 3 MÅLTE falske positiver -- "BD"/"BS" læst af helt
+# andre produkters eget typenummer: "Blu-ray afspiller, Panasonic, BMP-BD30"
+# (BD = Blu-ray Disc), "Wacker BS60-4 Jordloppe", "Jordloppe Wacker
+# BS60-2i" (BS60 = en jordstamperens eget modelnummer, intet med
+# "brandsikker" at gøre). Et klassetal kræver derfor nu ET af disse ord et
+# sted i titlen. _FIRE_BARE_PATTERN er allerede selv-ankret ("brand"+glas/
+# dør/vindue/parti) og har intet ekstra kontekstkrav nødvendigt.
+_FIRE_CONTEXT_WORD = re.compile(
+    r"d[øo]r(?:e|en|a)?\b|\bport\b|vindue\w*|glas\w*|parti\w*|\blem\b|karm\w*", re.I
+)
+
 
 def extract_fire_rating(text: str) -> str | None:
     t = text or ""
+    has_context = bool(_FIRE_CONTEXT_WORD.search(t))
     hits = []
-    for m in _FIRE_CLASS_PATTERN.finditer(t):
-        sys_ = m.group(1).upper()
-        sys_ = "EI" if sys_ == "EL" else sys_
-        hits.append(f"{sys_}{m.group(2)}")
+    if has_context:
+        for m in _FIRE_CLASS_PATTERN.finditer(t):
+            sys_ = m.group(1).upper()
+            sys_ = "EI" if sys_ == "EL" else sys_
+            hits.append(f"{sys_}{m.group(2)}")
     for m in _FIRE_BARE_PATTERN.finditer(t):
         hits.append(f"BD{m.group(1)}")  # dansk kontekst -> BD-systemet som default
     if not hits:
