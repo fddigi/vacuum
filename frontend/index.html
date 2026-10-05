@@ -220,6 +220,17 @@
       doere: "Døre (branddøre, indvendige døre, yderdøre)",
     };
     const SOURCES_OFF_BY_DEFAULT = new Set(["kleinanzeigen"]);
+    // Default-vurdering pr. kategori (2026-10-05, bruger-rapport: "ser
+    // stadig drikkeglas ... og ingen branddøre"): døre-kategorien har (i
+    // modsætning til støvsugere) ingen etableret "køb nu"-tærskel, og
+    // KLASSIFICERER derfor en stor andel irrelevante træf korrekt som
+    // "afvis" i stedet for slet ikke at gemme dem (se doere_classify.py's
+    // docstring). Med standard-filtret "Alle vurderinger" + "Sortér:
+    // billigst" druknede de facto-korrekt afviste, meget billige glas-/
+    // tilbehørsrækker (fra 1 kr.) de rigtige branddøre/-vinduer (typisk
+    // 150+ kr.) på de første skærmfulde. "Se nærmere" er stadig kun ÉT
+    // klik væk i dropdownen, intet er skjult permanent.
+    const CATEGORY_DEFAULT_VURDERING = { stoevsugere: "", doere: "se nærmere" };
     let activeCategory = "stoevsugere";
 
     function allSources() {
@@ -292,6 +303,7 @@
       document.title = CATEGORY_LABELS[category] ?? document.title;
       document.getElementById("filters-stoevsugere").style.display = category === "stoevsugere" ? "" : "none";
       document.getElementById("filters-doere").style.display = category === "doere" ? "" : "none";
+      document.getElementById("filter-vurdering").value = CATEGORY_DEFAULT_VURDERING[category] ?? "";
       renderSourceCheckboxes();
       loadListings();
     }
