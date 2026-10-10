@@ -199,6 +199,10 @@
     // RETTET 2026-10-05: "jyskauktion" manglede fra denne liste (tilføjet
     // som kilde 2026-10-03/04, EFTER denne liste blev skrevet) -- samme
     // fejlklasse som den tidligere facebook-mangel (se commit-historik).
+    // RETTET IGEN 2026-10-10 for "jk_genbrugscenter" -- tredje gang samme
+    // fejlklasse rammer: en ny backend-kilde (config.doere.yaml) glemmes i
+    // denne hardkodede frontend-liste, fordi de to filer redigeres hver for
+    // sig. Overvej et fælles /api/sources-endpoint hvis dette sker en 4. gang.
     const CATEGORY_SOURCES = {
       stoevsugere: [
         "dba",
@@ -212,7 +216,7 @@
         "facebook",
         "jyskauktion",
       ],
-      doere: ["genbyg", "dba"],
+      doere: ["genbyg", "dba", "jk_genbrugscenter"],
     };
     const CATEGORY_LABELS = { stoevsugere: "Sikkerhedsstøvsugere", doere: "Døre" };
     const CATEGORY_TITLES = {
