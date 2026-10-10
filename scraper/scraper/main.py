@@ -46,6 +46,7 @@ from .sources import (
     klaravik,
     kleinanzeigen,
     retrade,
+    skave_nedbrydning,
     vinted,
 )
 from .vacuum_config import load_config
@@ -65,6 +66,7 @@ SOURCE_MODULES = {
     "jyskauktion": jyskauktion,
     "genbyg": genbyg,
     "jk_genbrugscenter": jk_genbrugscenter,
+    "skave_nedbrydning": skave_nedbrydning,
 }
 
 # KRITISK FUND (live-test 2026-09-20): efter search_terms-reseed-fixet
@@ -92,6 +94,11 @@ SOURCE_TIMEOUT_OVERRIDES = {
     "retrade": 900,
     "facebook": 900,
     "jyskauktion": 900,
+    # 30s obligatorisk crawl-delay pr. side (robots.txt-krav, se
+    # sources/skave_nedbrydning.py's docstring) -- 7 kategorier, op til ~110
+    # sider i alt hvis max_pages_total ikke begrænser det, kan derfor tage
+    # markant længere end de øvrige kilder.
+    "skave_nedbrydning": 3600,
 }
 
 # To uafhængige triggere (launchd-schedule + evt. fremtidig "Kør nu"-knap) kan

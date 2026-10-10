@@ -29,6 +29,22 @@ sources:
   # beskyttelse), og en dedikeret Branddøre-kategori. Henter HELE kataloget,
   # ikke et søgeord-loop -- se sources/jk_genbrugscenter.py's docstring.
   jk_genbrugscenter: true
+  # Tilføjet 2026-10-10, samme kildeevaluering: det STØRSTE udbud i hele
+  # undersøgelsen (5.447 varer, 2.914 vinduer alene), strukturerede mål
+  # INKL. vægt (ingen anden kilde leverer det), 99 brandrelaterede varer.
+  # Ingen bot-beskyttelse, men sitets egen robots.txt kræver 30s crawl-delay
+  # og forbyder ?limit=/?sort=/?order= -- se sources/skave_nedbrydning.py's
+  # docstring og sources_min_interval_hours nedenfor.
+  skave_nedbrydning: true
+
+# 30s obligatorisk crawl-delay gør en fuld kørsel markant langsommere end de
+# øvrige kilder (potentielt 15-45+ min for alle 7 relevante kategorier) --
+# en gang i døgnet er rigeligt for et sekundhånds-lager der ikke ændrer sig
+# time for time, og det undgår at denne ene kilde optager en uforholdsmæssig
+# stor del af hver eneste planlagte scraper-kørsel (se main.py's
+# `should_run_source()`).
+sources_min_interval_hours:
+  skave_nedbrydning: 24
 
 search_terms:
   # RETTET 2026-10-05 efter en Opus-undersøgelse af 935 live DBA-titler
@@ -87,6 +103,11 @@ playwright:
   min_delay_s: 3
   max_delay_s: 8
   max_pages_per_term: 3
-  max_pages_total: 80
+  # Hævet fra 80 til 120 (2026-10-10): skave_nedbrydning.py's fulde dækning
+  # af alle 7 relevante kategorier kræver ca. 108 sider (2.914 vinduer alene
+  # er 73 sider á 40 kort) -- denne grænse deles af alle kilder i denne
+  # kategori (se config_for_source()), men ingen af de øvrige kommer i
+  # nærheden af at ramme loftet.
+  max_pages_total: 120
 
 db_path: "./data/local.db"
