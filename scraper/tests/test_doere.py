@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scraper.doere_classify import classify
 from scraper.doere_normalize import (
+    classify_subtype,
     extract_dimensions_from_text,
     extract_fire_rating,
     is_accessory_or_rental,
@@ -40,6 +41,7 @@ def test_structured_source_attributes_win_over_text_extraction():
         "height_cm": 205.5,
         "thickness_cm": 6.4,
         "fire_rating": "BD60",
+        "subtype": "branddoer",
     }
 
 
@@ -179,6 +181,60 @@ def test_classify_scores_explicit_brand_word_even_without_a_number():
     # Uden et brandord OG uden mål/klasse skal afvis stadig stå fast.
     listing3 = {"attributes": {}, "title": "Et helt almindeligt bord"}
     assert classify(listing3, {})["vurdering"] == "afvis"
+
+
+def test_classify_subtype_prefers_category_hint_over_text():
+    """P (2026-10-10, jk-genbrugscenter.dk-review): en kildes EGEN kategori-
+    tildeling vinder over tekst, fordi "Hæveskydedør"/"Skydedør" blev fundet
+    kategoriseret som Terrassedør uden selv at nævne ordet 'terrassedør'."""
+    assert classify_subtype("Hæveskydedør", fire_rating=None, category_hint="terrassedoer") == (
+        "terrassedoer"
+    )
+    assert classify_subtype("Fastkarms vindue", fire_rating=None, category_hint="vindue") == (
+        "vindue"
+    )
+    assert classify_subtype("Brandglas BD30", fire_rating="BD30", category_hint="vindue") == (
+        "brandvindue"
+    )
+    assert classify_subtype("Stålbranddør EL60", fire_rating="EI60", category_hint="branddoer") == (
+        "branddoer"
+    )
+
+
+def test_classify_subtype_promotes_fire_rated_item_despite_wrong_category():
+    """Verbatim fund: 'Daloc S43 – Brand EL30, lyd og sikkerhedsdør' er
+    kategoriseret som Sikringsdør (ikke Branddøre), men er reelt
+    brandklassificeret -- fire_rating beregnes altid fra tekst og skal
+    stadig forfremme den til 'branddoer', uanset kildens kategorivalg."""
+    assert classify_subtype(
+        "Daloc S43 – Brand EL30, lyd og sikkerhedsdør",
+        fire_rating="EI30",
+        category_hint="doer_andet",
+    ) == "branddoer"
+
+
+def test_classify_subtype_text_fallback_for_sources_without_category_structure():
+    """DBA/genbyg har ingen category_hint -- fallback til tekstmønstre."""
+    assert classify_subtype("Flot terrassedør, næsten ny", None, None) == "terrassedoer"
+    assert classify_subtype("Tophængt vindue 80x100", None, None) == "vindue"
+    assert classify_subtype("Brandvindue EI60", "EI60", None) == "brandvindue"
+    assert classify_subtype("BD60 branddør uden karm", "BD60", None) == "branddoer"
+    assert classify_subtype("Indvendig dør, hvid", None, None) == "andet"
+    assert classify_subtype("Et helt almindeligt bord", None, None) == "andet"
+
+
+def test_normalize_listing_sets_subtype_attribute():
+    listing = normalize_listing(
+        source="jk_genbrugscenter",
+        title="Branddør BD30",
+        description="",
+        price_amount=1500.0,
+        price_currency="DKK",
+        url="https://jk-genbrugscenter.dk/x",
+        rates=RATES,
+        extra={"attributes": {"width_cm": 89.0, "height_cm": 210.0}, "subtype_hint": "branddoer"},
+    )
+    assert listing["attributes"]["subtype"] == "branddoer"
 
 
 def test_classify_scores_fire_rating_and_thickness_too():

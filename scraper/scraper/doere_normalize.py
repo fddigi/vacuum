@@ -328,6 +328,52 @@ def extract_fire_rating(text: str) -> str | None:
     return sorted(set(hits))[0]
 
 
+# ---------------------------------------------------------------------------
+# SUBTYPE (2026-10-10): brugerens eget opdrag -- "gøre klar til at inddele i
+# brandvinduer, branddøre, terrassedør og vinduer" i dashboardet. Lagres som
+# attributes["subtype"] (samme generiske attributes_json-kolonne som mål/
+# brandklasse, ingen skemaændring nødvendig).
+#
+# `category_hint` (valgfri, sat af en kildes egen fetch() via
+# extra["subtype_hint"]) vinder ALTID over tekstgæt, når den findes -- samme
+# princip som strukturerede mål vinder over regex. Konkret fund bag dette
+# (jk-genbrugscenter.dk, 2026-10-10): 2 af 15 stikprøvede "Terrassedør"-
+# kategoriserede varer hed rent faktisk "Hæveskydedør"/"Skydedør" i selve
+# titlen -- en tekstbaseret "terrassedør"-søgning ville have misset dem,
+# mens sitets EGEN kategori-tildeling korrekt fangede dem.
+#
+# fire_rating beregnes derimod ALTID fra tekst, uanset category_hint -- fordi
+# samme kilde også viste det modsatte problem: "Daloc S43 – Brand EL30, lyd
+# og sikkerhedsdør" er kategoriseret som "Sikringsdør", IKKE "Branddøre", men
+# er reelt brandklassificeret. At stole blindt på kildens kategori ville her
+# have tabt en ægte branddør.
+TERRASSEDOOR_WORD = re.compile(r"(h[æa]ve)?skyded[øo]r|terrassed[øo]r", re.I)
+VINDUE_WORD = re.compile(r"vindue\w*|vinduesparti|ovenlysvindue|glasparti", re.I)
+
+
+def classify_subtype(title: str, fire_rating: str | None, category_hint: str | None = None) -> str:
+    """Returnerer én af: 'brandvindue', 'branddoer', 'terrassedoer', 'vindue',
+    'andet'. `category_hint` er én af samme fire (minus 'brandvindue', som
+    altid udledes af fire_rating) + 'doer_andet', eller None (tekst-fallback,
+    bruges af kilder uden egen kategoristruktur, fx DBA)."""
+    if category_hint == "terrassedoer":
+        return "terrassedoer"
+    if category_hint == "vindue":
+        return "brandvindue" if fire_rating else "vindue"
+    if category_hint in ("branddoer", "doer_andet"):
+        return "branddoer" if fire_rating else "andet"
+
+    # Tekst-fallback: ingen strukturel kategori at stole på.
+    t = title or ""
+    if TERRASSEDOOR_WORD.search(t):
+        return "terrassedoer"
+    if VINDUE_WORD.search(t):
+        return "brandvindue" if fire_rating else "vindue"
+    if _DOOR_WORD.search(t):
+        return "branddoer" if fire_rating else "andet"
+    return "andet"
+
+
 def to_dkk(amount: float, currency: str, rates: dict) -> float:
     currency = currency.upper()
     if currency == "DKK":
@@ -369,6 +415,7 @@ def normalize_listing(
     fire_rating = source_attributes.get("fire_rating") or extract_fire_rating(text)
     if fire_rating:
         attributes["fire_rating"] = fire_rating
+    attributes["subtype"] = classify_subtype(title, fire_rating, extra.get("subtype_hint"))
 
     price_dkk = to_dkk(price_amount, price_currency, rates)
     landed_price_dkk = price_dkk  # ingen import-logik for døre i v1 -- alle fund er danske

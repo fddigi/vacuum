@@ -22,6 +22,13 @@ sources:
   # derfor ikke endnu. Ikke rettet her (påvirker også stoevsugere-kategorien,
   # som deler samme dba.py -- en separat, isoleret ændring).
   dba: true
+  # Tilføjet 2026-10-10 efter en dedikeret Opus-kildeevaluering af 16 sites
+  # (research/byggematerialer-kilder-2026-10-10.md) -- klart stærkeste
+  # kandidat: 1.302 relevante dør-/vinduevarer, 73 branddøre med 97%
+  # strukturerede mål, et åbent WooCommerce Store API (ingen bot-
+  # beskyttelse), og en dedikeret Branddøre-kategori. Henter HELE kataloget,
+  # ikke et søgeord-loop -- se sources/jk_genbrugscenter.py's docstring.
+  jk_genbrugscenter: true
 
 search_terms:
   # RETTET 2026-10-05 efter en Opus-undersøgelse af 935 live DBA-titler

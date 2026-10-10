@@ -41,6 +41,7 @@ from .sources import (
     facebook,
     genbyg,
     guloggratis,
+    jk_genbrugscenter,
     jyskauktion,
     klaravik,
     kleinanzeigen,
@@ -63,6 +64,7 @@ SOURCE_MODULES = {
     "facebook": facebook,
     "jyskauktion": jyskauktion,
     "genbyg": genbyg,
+    "jk_genbrugscenter": jk_genbrugscenter,
 }
 
 # KRITISK FUND (live-test 2026-09-20): efter search_terms-reseed-fixet
