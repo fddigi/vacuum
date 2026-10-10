@@ -223,6 +223,42 @@ def test_classify_subtype_text_fallback_for_sources_without_category_structure()
     assert classify_subtype("Et helt almindeligt bord", None, None) == "andet"
 
 
+def test_classify_subtype_brand_word_without_a_number_still_counts_as_fire_signal():
+    """REGRESSION (2026-10-10): oprindeligt krævede 'brandvindue'/'branddoer'
+    et NUMERISK klassetal (fire_rating) -- men genbyg.dk's egne "Indvendigt
+    brandvindue", "Brandvindue Aluflame med 3-lagsglas" og "Vindue med
+    brandglas" nævner ALDRIG et tal, kun selve brandordet, og endte derfor
+    fejlagtigt i den generiske "vindue"-bøtte (fundet i produktionsdata).
+    Samme princip som P2-fixet i doere_classify.py."""
+    assert classify_subtype("Indvendigt brandvindue", fire_rating=None, category_hint=None) == (
+        "brandvindue"
+    )
+    assert classify_subtype(
+        "Brandvindue Aluflame med 3-lagsglas", fire_rating=None, category_hint=None
+    ) == "brandvindue"
+    assert classify_subtype("Vindue med brandglas", fire_rating=None, category_hint=None) == (
+        "brandvindue"
+    )
+    assert classify_subtype("Branddøre af mærket Safco Doors", None, None) == "branddoer"
+    # Også via category_hint (jk-genbrugscenter-stil), ikke kun tekst-fallback.
+    assert classify_subtype("Indvendigt brandvindue", None, category_hint="vindue") == (
+        "brandvindue"
+    )
+
+
+def test_classify_subtype_door_word_wins_over_vindue_word_when_both_present():
+    """REGRESSION (2026-10-10, produktionsdata): en dør med en vinduesdetalje
+    blev fejlagtigt bøttet som et vindue, fordi VINDUE_WORD blev tjekket FØR
+    _DOOR_WORD i tekst-fallbacken. Verbatim titler fra DBA."""
+    assert classify_subtype(
+        "Brøndør branddør 142 x 212 med rundt vindue", "BD30", None
+    ) == "branddoer"
+    assert classify_subtype("Massiv yderdør i ædeltræ med vindue", None, None) == "andet"
+    assert classify_subtype("Hvid sommerhus yderdør med sprosset vindue.", None, None) == "andet"
+    # Rene vinduer uden noget dørord skal stadig virke som før.
+    assert classify_subtype("Tophængt vindue 80x100", None, None) == "vindue"
+
+
 def test_normalize_listing_sets_subtype_attribute():
     listing = normalize_listing(
         source="jk_genbrugscenter",

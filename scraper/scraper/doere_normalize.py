@@ -350,27 +350,49 @@ def extract_fire_rating(text: str) -> str | None:
 TERRASSEDOOR_WORD = re.compile(r"(h[æa]ve)?skyded[øo]r|terrassed[øo]r", re.I)
 VINDUE_WORD = re.compile(r"vindue\w*|vinduesparti|ovenlysvindue|glasparti", re.I)
 
+# RETTET 2026-10-10: oprindeligt krævede subtype-bøtten "brandvindue"/
+# "branddoer" et NUMERISK klassetal (fire_rating), samme fejl som P2-fundet
+# i doere_classify.py -- MÅLT KONSEKVENS: genbyg.dk's egne "Indvendigt
+# brandvindue", "Brandvindue Aluflame med 3-lagsglas" og 2× "Vindue med
+# brandglas" endte alle i den generiske "vindue"-bøtte, fordi ingen af
+# titlerne nævner et tal (BD30/EI60 osv.) -- kun selve brandordet. Et
+# eksplicit brandord i titlen tæller nu som fire-signal på lige fod med et
+# fundet klassetal.
+_BRAND_WORD = re.compile(
+    r"brand\s*(d[øo]re?|vindue\w*|glas\w*|rude\w*|parti\w*|element\w*|lem\b)", re.I
+)
+
 
 def classify_subtype(title: str, fire_rating: str | None, category_hint: str | None = None) -> str:
     """Returnerer én af: 'brandvindue', 'branddoer', 'terrassedoer', 'vindue',
     'andet'. `category_hint` er én af samme fire (minus 'brandvindue', som
-    altid udledes af fire_rating) + 'doer_andet', eller None (tekst-fallback,
-    bruges af kilder uden egen kategoristruktur, fx DBA)."""
+    altid udledes af et fire-signal) + 'doer_andet', eller None (tekst-
+    fallback, bruges af kilder uden egen kategoristruktur, fx DBA)."""
+    t = title or ""
+    # Et fire-signal er ENTEN et fundet klassetal ELLER selve brandordet uden
+    # tal ("Indvendigt brandvindue") -- se kommentaren ovenfor.
+    has_fire_signal = bool(fire_rating) or bool(_BRAND_WORD.search(t))
+
     if category_hint == "terrassedoer":
         return "terrassedoer"
     if category_hint == "vindue":
-        return "brandvindue" if fire_rating else "vindue"
+        return "brandvindue" if has_fire_signal else "vindue"
     if category_hint in ("branddoer", "doer_andet"):
-        return "branddoer" if fire_rating else "andet"
+        return "branddoer" if has_fire_signal else "andet"
 
-    # Tekst-fallback: ingen strukturel kategori at stole på.
-    t = title or ""
+    # Tekst-fallback: ingen strukturel kategori at stole på. _DOOR_WORD
+    # tjekkes FØR VINDUE_WORD -- MÅLT fund: 9 rigtige titler nævner begge
+    # ord samtidig ("Brøndør branddør 142 x 212 med rundt vindue", "Massiv
+    # yderdør i ædeltræ med vindue"), og hovedemnet er her en DØR med en
+    # vinduesdetalje, ikke et vindue. En dør er det mere SPECIFIKKE/sjældne
+    # ord i denne sammenhæng (yderdør/branddør nævnes typisk ikke "i
+    # forbifarten" i en vinduesannonce på samme måde).
     if TERRASSEDOOR_WORD.search(t):
         return "terrassedoer"
-    if VINDUE_WORD.search(t):
-        return "brandvindue" if fire_rating else "vindue"
     if _DOOR_WORD.search(t):
-        return "branddoer" if fire_rating else "andet"
+        return "branddoer" if has_fire_signal else "andet"
+    if VINDUE_WORD.search(t):
+        return "brandvindue" if has_fire_signal else "vindue"
     return "andet"
 
 
