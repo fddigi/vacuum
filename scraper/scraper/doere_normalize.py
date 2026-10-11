@@ -375,9 +375,19 @@ def classify_subtype(title: str, fire_rating: str | None, category_hint: str | N
 
     if category_hint == "terrassedoer":
         return "terrassedoer"
+    if category_hint == "branddoer":
+        # RETTET 2026-10-10: krævede tidligere OGSÅ et tekstligt fire-signal
+        # her -- men kildens EGEN kategori-tildeling ER selve beviset for en
+        # branddør, uafhængigt af om sælgerens titel/beskrivelse nævner et
+        # klassetal. Maskeret indtil nu, fordi jk-genbrugscenter.dk's
+        # Branddøre-varer altid ALLIGEVEL har et BD/EI-tal i titlen -- men
+        # bygbrugt.dk's tabel-kolonner ("Type"/varenr.) gør det ikke
+        # nødvendigvis, og ville ellers fejlagtigt blive nedgraderet til
+        # "andet".
+        return "branddoer"
     if category_hint == "vindue":
         return "brandvindue" if has_fire_signal else "vindue"
-    if category_hint in ("branddoer", "doer_andet"):
+    if category_hint == "doer_andet":
         return "branddoer" if has_fire_signal else "andet"
 
     # Tekst-fallback: ingen strukturel kategori at stole på. _DOOR_WORD

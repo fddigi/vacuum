@@ -201,6 +201,18 @@ def test_classify_subtype_prefers_category_hint_over_text():
     )
 
 
+def test_classify_subtype_branddoer_hint_wins_unconditionally_even_without_fire_signal():
+    """REGRESSION (2026-10-10, bygbrugt.dk-review): category_hint="branddoer"
+    krævede tidligere OGSÅ et tekstligt fire-signal (fire_rating ELLER
+    brandord) for rent faktisk at returnere "branddoer" -- ellers "andet".
+    Det er forkert: kildens EGEN kategori-tildeling ER selve beviset.
+    Maskeret indtil nu fordi jk-genbrugscenter.dk's branddøre altid ALLIGEVEL
+    har et BD/EI-tal i titlen -- men bygbrugt.dk's varenumre ("RB14") gør
+    det ikke, og blev fejlagtigt nedgraderet uden denne rettelse."""
+    assert classify_subtype("RB14", fire_rating=None, category_hint="branddoer") == "branddoer"
+    assert classify_subtype("", fire_rating=None, category_hint="branddoer") == "branddoer"
+
+
 def test_classify_subtype_promotes_fire_rated_item_despite_wrong_category():
     """Verbatim fund: 'Daloc S43 – Brand EL30, lyd og sikkerhedsdør' er
     kategoriseret som Sikringsdør (ikke Branddøre), men er reelt

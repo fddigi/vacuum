@@ -36,13 +36,21 @@ sources:
   # og forbyder ?limit=/?sort=/?order= -- se sources/skave_nedbrydning.py's
   # docstring og sources_min_interval_hours nedenfor.
   skave_nedbrydning: true
+  # Tilføjet 2026-10-10, samme kildeevaluering: den reneste datastruktur i
+  # undersøgelsen -- en ren HTML-tabel pr. kategori, EGNE kategori-URL'er
+  # pr. brandklasse (BD30/BD60/BS60/dobbelte branddøre/brandporte/
+  # glasbranddøre), og én kategori ("glas-og-glasdoere/brandglas") med sin
+  # egen strukturerede "BD"-kolonne. Kræver en reverse-engineeret proof-of-
+  # work-løsning af sitets WAF (0,01-0,07s i ren Python, se
+  # sources/bygbrugt.py's docstring) -- IKKE Playwright.
+  bygbrugt: true
 
-# 30s obligatorisk crawl-delay gør en fuld kørsel markant langsommere end de
-# øvrige kilder (potentielt 15-45+ min for alle 7 relevante kategorier) --
-# en gang i døgnet er rigeligt for et sekundhånds-lager der ikke ændrer sig
-# time for time, og det undgår at denne ene kilde optager en uforholdsmæssig
-# stor del af hver eneste planlagte scraper-kørsel (se main.py's
-# `should_run_source()`).
+# 30s obligatorisk crawl-delay (skave_nedbrydning) gør en fuld kørsel
+# markant langsommere end de øvrige kilder (potentielt 15-45+ min for alle 7
+# relevante kategorier) -- en gang i døgnet er rigeligt for et sekundhånds-
+# lager der ikke ændrer sig time for time, og det undgår at denne ene kilde
+# optager en uforholdsmæssig stor del af hver eneste planlagte scraper-
+# kørsel (se main.py's `should_run_source()`).
 sources_min_interval_hours:
   skave_nedbrydning: 24
 

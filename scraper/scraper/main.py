@@ -37,6 +37,7 @@ from .source_cadence import SOURCE_STATE_SCHEMA, mark_source_run, should_run_sou
 from .sources import (
     auktionshuset,
     blocket,
+    bygbrugt,
     dba,
     facebook,
     genbyg,
@@ -67,6 +68,7 @@ SOURCE_MODULES = {
     "genbyg": genbyg,
     "jk_genbrugscenter": jk_genbrugscenter,
     "skave_nedbrydning": skave_nedbrydning,
+    "bygbrugt": bygbrugt,
 }
 
 # KRITISK FUND (live-test 2026-09-20): efter search_terms-reseed-fixet
