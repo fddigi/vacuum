@@ -291,7 +291,14 @@ def extract_dimensions_from_text(text: str) -> dict:
 # ståldøre ("EI60 stål branddør mål 139 x 260 cm") og BD på glas ("Brandglas
 # BD30"). Systemvalget følger SÆLGERENS ordvalg (ofte årgang), ikke
 # bygningsdelens type -- derfor ingen forsøgt dør/glas-opdeling her.
-_FIRE_CLASS_PATTERN = re.compile(r"\b(bd|ei|el|bs|fd|ew|f)\s*-?\s*(30|35|45|60|90|120)\b", re.I)
+#
+# "e" TILFØJET 2026-10-11 som bart alias for "ei": bygbrugt.dk's egen
+# strukturerede "BD"-kolonne for brandglas bruger konsekvent "E30"/"E60", IKKE
+# "EI30"/"EI60" (målt live, se research/brandvindue-identifikation-
+# 2026-10-11.md). Beskyttet mod falske positiver af det EKSISTERENDE krav i
+# extract_fire_rating() om en dør-/vindues-/glas-/karm-kontekst i samme tekst
+# (se P3, 2026-10-05) -- et løst "E30" uden den kontekst tæller stadig ikke.
+_FIRE_CLASS_PATTERN = re.compile(r"\b(bd|ei|el|e|bs|fd|ew|f)\s*-?\s*(30|35|45|60|90|120)\b", re.I)
 # "Brandglas 60 mål 121 x 209 cm" / "Brandglas 30": klassetallet alene, med
 # brand-ordet som anker. Uden ankeret ville ethvert løst "60" blive en
 # brandklasse.
@@ -319,7 +326,7 @@ def extract_fire_rating(text: str) -> str | None:
     if has_context:
         for m in _FIRE_CLASS_PATTERN.finditer(t):
             sys_ = m.group(1).upper()
-            sys_ = "EI" if sys_ == "EL" else sys_
+            sys_ = "EI" if sys_ in ("EL", "E") else sys_
             hits.append(f"{sys_}{m.group(2)}")
     for m in _FIRE_BARE_PATTERN.finditer(t):
         hits.append(f"BD{m.group(1)}")  # dansk kontekst -> BD-systemet som default

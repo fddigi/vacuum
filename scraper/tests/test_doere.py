@@ -68,6 +68,18 @@ def test_fire_rating_extracted_from_title_text():
     assert extract_fire_rating("Almindelig indvendig dør") is None
 
 
+def test_fire_rating_e_alias_for_ei():
+    """MÅLT (2026-10-11): bygbrugt.dk's egen strukturerede 'BD'-kolonne for
+    brandglas bruger konsekvent 'E30'/'E60', ikke 'EI30'/'EI60' (se
+    research/brandvindue-identifikation-2026-10-11.md). Stadig underlagt det
+    eksisterende dør-/vindueskontekstkrav (P3)."""
+    assert extract_fire_rating("Brandglas E30 til vindue") == "EI30"
+    assert extract_fire_rating("Glasparti E60") == "EI60"
+    # Uden kontekst (intet dør-/vindues-/glas-/karm-ord) tæller "E30" IKKE --
+    # samme beskyttelse som alle de øvrige præfikser allerede har.
+    assert extract_fire_rating("Model E30, næsten ny") is None
+
+
 def test_mm_written_without_unit_is_recovered_not_rejected():
     """Sælgere skriver ofte mål i mm uden at angive enheden -- en værdi
     >= 400 kan aldrig være cm for en dør, og tolkes derfor som mm (/10),
