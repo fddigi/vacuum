@@ -64,7 +64,12 @@
   <div class="category-tabs">
     <button class="category-tab active" data-category="stoevsugere">🧹 Sikkerhedsstøvsugere</button>
     <button class="category-tab" data-category="doere">🚪 Døre</button>
-    <button class="category-tab" disabled title="Under opbygning">🔥 Brandvinduer</button>
+    <!-- "Brandvinduer" er IKKE en egen backend-kategori -- den deler
+         "doere"-kategoriens kilder/data, men filtrerer altid på
+         attributes_json.subtype='brandvindue' (se TAB_FORCED_SUBTYPE
+         nedenfor). Aktiveret 2026-10-11 efter at subtype-klassificeringen
+         blev indført (se doere_normalize.classify_subtype()). -->
+    <button class="category-tab" data-category="brandvinduer">🔥 Brandvinduer</button>
   </div>
 
   <div class="topbar">
@@ -88,12 +93,21 @@
           <input type="checkbox" id="show-validated-only" /> Kun validerede
         </label>
       </span>
-      <!-- Døre har ingen backend-filtrering på mål endnu (attributes_json
-           er en JSON-blob, ikke forespørgelige kolonner) -- min/max anvendes
-           derfor klient-side på det allerede hentede resultat, se
-           applyDoorDimensionFilter() nedenfor. Dette var selve opdraget:
-           "kan ikke søge på mål på DBA", nu løst i vores eget dashboard. -->
+      <!-- Mål-filtrering kører SERVER-SIDE (worker/src/index.ts, 2026-10-11)
+           via json_extract(attributes_json,'$.width_cm'/'height_cm') --
+           ikke klient-side som tidligere: "doere"-kategorien har siden
+           passeret 2000 rækker (frontend's hentnings-loft), så et
+           klient-side filter ville systematisk overse data. Dette var
+           selve opdraget: "kan ikke søge på mål på DBA", nu løst. -->
       <span id="filters-doere" style="display: none">
+        <select id="filter-subtype">
+          <option value="">Alle typer</option>
+          <option value="branddoer">Branddøre</option>
+          <option value="terrassedoer">Terrassedøre</option>
+          <option value="vindue">Vinduer</option>
+          <option value="brandvindue">Brandvinduer</option>
+          <option value="andet">Andet</option>
+        </select>
         <input type="number" class="dim-filter" id="filter-width-min" placeholder="Bredde min cm" />
         <input type="number" class="dim-filter" id="filter-width-max" placeholder="Bredde max cm" />
         <input type="number" class="dim-filter" id="filter-height-min" placeholder="Højde min cm" />
@@ -235,6 +249,14 @@
     // 150+ kr.) på de første skærmfulde. "Se nærmere" er stadig kun ÉT
     // klik væk i dropdownen, intet er skjult permanent.
     const CATEGORY_DEFAULT_VURDERING = { stoevsugere: "", doere: "se nærmere" };
+    // "Brandvinduer" (aktiveret 2026-10-11) er en FANE, ikke en egen
+    // backend-kategori -- den deler "doere"-kategoriens kilder/filtre, men
+    // tvinger altid subtype=brandvindue. activeTab styrer UI (fane-
+    // fremhævning, titel), activeCategory styrer hvilken backend-kategori
+    // der reelt forespørges (afledt af activeTab, se switchCategory()).
+    const TAB_FORCED_SUBTYPE = { brandvinduer: "brandvindue" };
+    const TAB_TITLES = { brandvinduer: "Brandvinduer (BD/EI-klassificerede)" };
+    let activeTab = "stoevsugere";
     let activeCategory = "stoevsugere";
 
     function allSources() {
@@ -297,16 +319,27 @@
         .map((cb) => cb.dataset.source);
     }
 
-    function switchCategory(category) {
-      if (category === activeCategory) return;
+    function switchCategory(tab) {
+      if (tab === activeTab) return;
+      // "brandvinduer"-fanen bruger "doere"s backend-kategori (kilder,
+      // filtre, standard-vurdering) -- kun selve subtype-filtret er særligt
+      // for den, sat i loadListings() via TAB_FORCED_SUBTYPE.
+      const category = tab === "brandvinduer" ? "doere" : tab;
+      activeTab = tab;
       activeCategory = category;
       document.querySelectorAll(".category-tab").forEach((btn) => {
-        btn.classList.toggle("active", btn.dataset.category === category);
+        btn.classList.toggle("active", btn.dataset.category === tab);
       });
-      document.getElementById("page-title").textContent = CATEGORY_TITLES[category] ?? CATEGORY_LABELS[category];
-      document.title = CATEGORY_LABELS[category] ?? document.title;
+      document.getElementById("page-title").textContent =
+        TAB_TITLES[tab] ?? CATEGORY_TITLES[category] ?? CATEGORY_LABELS[category];
+      document.title = TAB_TITLES[tab] ? "Brandvinduer" : (CATEGORY_LABELS[category] ?? document.title);
       document.getElementById("filters-stoevsugere").style.display = category === "stoevsugere" ? "" : "none";
       document.getElementById("filters-doere").style.display = category === "doere" ? "" : "none";
+      // Subtype-dropdownen er overflødig (og vildledende) på selve
+      // Brandvinduer-fanen, da filtret allerede er tvunget -- skjul den der,
+      // men behold mål-filtrene (stadig nyttige: "find brandvinduer i en
+      // bestemt størrelse").
+      document.getElementById("filter-subtype").style.display = tab === "brandvinduer" ? "none" : "";
       document.getElementById("filter-vurdering").value = CATEGORY_DEFAULT_VURDERING[category] ?? "";
       renderSourceCheckboxes();
       loadListings();
@@ -358,15 +391,6 @@
         ${thickness ? `<span class="tag">Tykkelse: ${escapeHtml(thickness)} cm</span>` : ""}
         ${fireRating ? `<span class="tag">Brandklasse: ${escapeHtml(fireRating)}</span>` : ""}
       `;
-    }
-
-    function doorDimensions(row) {
-      try {
-        const attrs = JSON.parse(row.attributes_json || "{}") || {};
-        return { width: attrs.width_cm ?? null, height: attrs.height_cm ?? null };
-      } catch {
-        return { width: null, height: null };
-      }
     }
 
     function renderCard(row) {
@@ -448,39 +472,9 @@
       return card;
     }
 
-    // Dør-mål-filtrering (2026-10-05): dette var selve det oprindelige
-    // opdrag ("man kan ikke søge på mål på DBA") -- løst klient-side her,
-    // da attributes_json er en JSON-blob i databasen, ikke forespørgelige
-    // kolonner Workeren kan filtrere på endnu.
-    function applyDoorDimensionFilter(listings) {
-      if (activeCategory !== "doere") return listings;
-      const widthMin = parseFloat(document.getElementById("filter-width-min").value);
-      const widthMax = parseFloat(document.getElementById("filter-width-max").value);
-      const heightMin = parseFloat(document.getElementById("filter-height-min").value);
-      const heightMax = parseFloat(document.getElementById("filter-height-max").value);
-      if ([widthMin, widthMax, heightMin, heightMax].every((v) => Number.isNaN(v))) {
-        return listings;
-      }
-      return listings.filter((row) => {
-        const { width, height } = doorDimensions(row);
-        if (!Number.isNaN(widthMin) && (width == null || width < widthMin)) return false;
-        if (!Number.isNaN(widthMax) && (width == null || width > widthMax)) return false;
-        if (!Number.isNaN(heightMin) && (height == null || height < heightMin)) return false;
-        if (!Number.isNaN(heightMax) && (height == null || height > heightMax)) return false;
-        return true;
-      });
-    }
-
     async function loadListings() {
       const params = new URLSearchParams();
       params.set("category", activeCategory);
-      // Loftet på 500 (Workerens default) gjorde dør-målfiltreringen
-      // reelt ubrugelig: filtret kører klient-side (se
-      // applyDoorDimensionFilter) på de hentede rækker, men med 1178+
-      // dørannoncer og default-sortering "billigst" var op til 77% af et
-      // reelt mål-match uden for de 500 billigste og dermed usynligt.
-      // 2000 er Workerens eget hårde loft (se worker/src/index.ts) og
-      // dækker begge kategoriers fulde beholdning i dag.
       params.set("limit", "2000");
       const vurdering = document.getElementById("filter-vurdering").value;
       const sources = checkedSources();
@@ -505,6 +499,23 @@
         if (klasse) params.set("dust_class", klasse);
         if (document.getElementById("show-validated-only").checked) params.set("validated", "1");
       }
+      // Subtype + mål-filtrering: SERVER-SIDE (2026-10-11, worker/src/
+      // index.ts) via json_extract -- se filters-doere's egen kommentar for
+      // hvorfor det ikke længere kører klient-side. TAB_FORCED_SUBTYPE
+      // vinder altid over dropdownens eget valg (Brandvinduer-fanen).
+      if (activeCategory === "doere") {
+        const forcedSubtype = TAB_FORCED_SUBTYPE[activeTab];
+        const subtype = forcedSubtype || document.getElementById("filter-subtype").value;
+        if (subtype) params.set("subtype", subtype);
+        const widthMin = document.getElementById("filter-width-min").value;
+        const widthMax = document.getElementById("filter-width-max").value;
+        const heightMin = document.getElementById("filter-height-min").value;
+        const heightMax = document.getElementById("filter-height-max").value;
+        if (widthMin) params.set("width_min", widthMin);
+        if (widthMax) params.set("width_max", widthMax);
+        if (heightMin) params.set("height_min", heightMin);
+        if (heightMax) params.set("height_max", heightMax);
+      }
       params.set("sort", sort);
       if (showDismissed) params.set("include_dismissed", "1");
       if (showStale) params.set("include_stale", "1");
@@ -514,8 +525,7 @@
         document.getElementById("error").textContent = "Kunne ikke hente data.";
         return;
       }
-      const { listings: rawListings } = await res.json();
-      const listings = applyDoorDimensionFilter(rawListings);
+      const { listings } = await res.json();
       const container = document.getElementById("cards");
       container.innerHTML = "";
       document.getElementById("empty").style.display = listings.length ? "none" : "block";
@@ -530,6 +540,7 @@
 
     document.getElementById("filter-vurdering").addEventListener("change", loadListings);
     document.getElementById("filter-klasse").addEventListener("change", loadListings);
+    document.getElementById("filter-subtype").addEventListener("change", loadListings);
     document.getElementById("sort").addEventListener("change", loadListings);
     document.getElementById("show-dismissed").addEventListener("change", loadListings);
     document.getElementById("show-validated-only").addEventListener("change", loadListings);

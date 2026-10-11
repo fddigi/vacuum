@@ -208,6 +208,21 @@ app.get("/api/listings", requireAuth, async (c) => {
   // reelt "alle", da kun 'stoevsugere' findes endnu) -- frontend'ens
   // fremtidige faneblade pr. kategori sender denne eksplicit.
   const category = c.req.query("category");
+  // Subtype-opdeling (2026-10-11, brugerens eget opdrag: "gøre klar til at
+  // inddele i brandvinduer, branddøre, terrassedør og vinduer") og mål-
+  // filtrering, BEGGE server-side fra og med nu -- se
+  // scraper/scraper/doere_normalize.py's classify_subtype() for hvordan
+  // attributes_json.subtype beregnes. Tidligere kørte mål-filtret KUN
+  // klient-side på de højst 2000 hentede rækker (frontend/index.html), men
+  // "doere"-kategorien har siden passeret 2000 rækker i sig selv -- et
+  // klient-side filter ville derfor systematisk overse data uden for det
+  // loft. json_extract på en numerisk JSON-værdi giver en rigtig SQL-talværdi
+  // direkte (verificeret live, intet CAST nødvendigt).
+  const subtype = c.req.query("subtype");
+  const widthMin = c.req.query("width_min");
+  const widthMax = c.req.query("width_max");
+  const heightMin = c.req.query("height_min");
+  const heightMax = c.req.query("height_max");
 
   await ensureColumn(db, "listings", "dismissed", "INTEGER NOT NULL DEFAULT 0");
   await ensureColumn(db, "listings", "dismissed_reason", "TEXT");
@@ -238,6 +253,26 @@ app.get("/api/listings", requireAuth, async (c) => {
   if (dustClass) {
     conditions.push("dust_class = ?");
     args.push(dustClass);
+  }
+  if (subtype) {
+    conditions.push("json_extract(attributes_json, '$.subtype') = ?");
+    args.push(subtype);
+  }
+  if (widthMin) {
+    conditions.push("json_extract(attributes_json, '$.width_cm') >= ?");
+    args.push(Number(widthMin));
+  }
+  if (widthMax) {
+    conditions.push("json_extract(attributes_json, '$.width_cm') <= ?");
+    args.push(Number(widthMax));
+  }
+  if (heightMin) {
+    conditions.push("json_extract(attributes_json, '$.height_cm') >= ?");
+    args.push(Number(heightMin));
+  }
+  if (heightMax) {
+    conditions.push("json_extract(attributes_json, '$.height_cm') <= ?");
+    args.push(Number(heightMax));
   }
   // Afviste annoncer skjules som standard - se "Vis afviste"-tjekboksen i
   // frontend/index.html, som sætter include_dismissed=1 for at se dem igen.
